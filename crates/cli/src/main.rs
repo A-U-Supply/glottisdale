@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ArgAction};
+use clap::{Parser, Subcommand};
 
 use glottisdale_core::audio::io::{extract_audio, read_wav};
 use glottisdale_core::collage::stretch::{StretchConfig, parse_stretch_factor};
@@ -75,6 +75,7 @@ struct SharedArgs {
 
 #[derive(Parser, Debug)]
 #[command(about = "Create a syllable-level audio collage from speech")]
+#[command(allow_negative_numbers = true)]
 struct CollageArgs {
     #[command(flatten)]
     shared: SharedArgs,
@@ -122,36 +123,56 @@ struct CollageArgs {
 
     // -- Audio polish --
     /// Pink noise bed level in dB (0 to disable)
-    #[arg(long, default_value_t = -40.0)]
+    #[arg(long, default_value_t = -40.0, allow_hyphen_values = true)]
     noise_level: f64,
 
-    /// Extract room tone for gaps
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Extract room tone for gaps [use --no-room-tone to disable]
+    #[arg(long, default_value_t = true)]
     room_tone: bool,
 
-    /// Normalize pitch across syllables
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Disable room tone extraction
+    #[arg(long, overrides_with = "room_tone")]
+    no_room_tone: bool,
+
+    /// Normalize pitch across syllables [use --no-pitch-normalize to disable]
+    #[arg(long, default_value_t = true)]
     pitch_normalize: bool,
+
+    /// Disable pitch normalization
+    #[arg(long, overrides_with = "pitch_normalize")]
+    no_pitch_normalize: bool,
 
     /// Max pitch shift in semitones
     #[arg(long, default_value_t = 5.0)]
     pitch_range: f64,
 
-    /// Insert breath sounds at phrase boundaries
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Insert breath sounds at phrase boundaries [use --no-breaths to disable]
+    #[arg(long, default_value_t = true)]
     breaths: bool,
+
+    /// Disable breath insertion
+    #[arg(long, overrides_with = "breaths")]
+    no_breaths: bool,
 
     /// Probability of breath at each phrase boundary
     #[arg(long, default_value_t = 0.6)]
     breath_probability: f64,
 
-    /// RMS-normalize syllable clips
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// RMS-normalize syllable clips [use --no-volume-normalize to disable]
+    #[arg(long, default_value_t = true)]
     volume_normalize: bool,
 
-    /// Apply phrase-level volume envelope
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Disable volume normalization
+    #[arg(long, overrides_with = "volume_normalize")]
+    no_volume_normalize: bool,
+
+    /// Apply phrase-level volume envelope [use --no-prosodic-dynamics to disable]
+    #[arg(long, default_value_t = true)]
     prosodic_dynamics: bool,
+
+    /// Disable prosodic dynamics
+    #[arg(long, overrides_with = "prosodic_dynamics")]
+    no_prosodic_dynamics: bool,
 
     // -- Time stretch --
     /// Global speed factor (0.5=half, 2.0=double)
@@ -213,13 +234,21 @@ struct SingArgs {
     #[arg(long)]
     midi: PathBuf,
 
-    /// Toggle vibrato
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Enable vibrato [use --no-vibrato to disable]
+    #[arg(long, default_value_t = true)]
     vibrato: bool,
 
-    /// Toggle chorus
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Disable vibrato
+    #[arg(long, overrides_with = "vibrato")]
+    no_vibrato: bool,
+
+    /// Enable chorus [use --no-chorus to disable]
+    #[arg(long, default_value_t = true)]
     chorus: bool,
+
+    /// Disable chorus
+    #[arg(long, overrides_with = "chorus")]
+    no_chorus: bool,
 
     /// Max semitone drift from melody
     #[arg(long, default_value_t = 2.0)]
@@ -250,9 +279,13 @@ struct SpeakArgs {
     #[arg(long, default_value = "syllable", value_parser = ["syllable", "phoneme"])]
     match_unit: String,
 
-    /// Adjust pitch to target intonation
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Adjust pitch to target intonation [use --no-pitch-correct to disable]
+    #[arg(long, default_value_t = true)]
     pitch_correct: bool,
+
+    /// Disable pitch correction
+    #[arg(long, overrides_with = "pitch_correct")]
+    no_pitch_correct: bool,
 
     /// How closely to follow reference timing (0.0-1.0)
     #[arg(long, default_value_t = 0.8)]
@@ -262,9 +295,13 @@ struct SpeakArgs {
     #[arg(long, default_value_t = 10.0)]
     crossfade: f64,
 
-    /// Normalize volume across syllables
-    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    /// Normalize volume across syllables [use --no-normalize-volume to disable]
+    #[arg(long, default_value_t = true)]
     normalize_volume: bool,
+
+    /// Disable volume normalization
+    #[arg(long, overrides_with = "normalize_volume")]
+    no_normalize_volume: bool,
 
     /// Alignment backend
     #[arg(long, default_value = "auto", value_parser = ["auto", "default", "bfa"])]
@@ -368,6 +405,13 @@ fn run_collage(args: CollageArgs) -> Result<()> {
         total_syls
     );
 
+    // Apply --no-* overrides
+    let room_tone = args.room_tone && !args.no_room_tone;
+    let pitch_normalize = args.pitch_normalize && !args.no_pitch_normalize;
+    let breaths = args.breaths && !args.no_breaths;
+    let volume_normalize = args.volume_normalize && !args.no_volume_normalize;
+    let prosodic_dynamics = args.prosodic_dynamics && !args.no_prosodic_dynamics;
+
     // Build collage config from CLI args
     let config = glottisdale_core::collage::process::CollageConfig {
         syllables_per_clip: args.syllables_per_word,
@@ -381,13 +425,13 @@ fn run_collage(args: CollageArgs) -> Result<()> {
         word_crossfade_ms: args.word_crossfade,
         seed: args.shared.seed,
         noise_level_db: args.noise_level,
-        room_tone: args.room_tone,
-        pitch_normalize: args.pitch_normalize,
+        room_tone,
+        pitch_normalize,
         pitch_range: args.pitch_range,
-        breaths: args.breaths,
+        breaths,
         breath_probability: args.breath_probability,
-        volume_normalize: args.volume_normalize,
-        prosodic_dynamics: args.prosodic_dynamics,
+        volume_normalize,
+        prosodic_dynamics,
         speed: args.speed,
         stretch_config: StretchConfig {
             random_stretch: args.random_stretch,
@@ -481,8 +525,12 @@ fn run_sing(args: SingArgs) -> Result<()> {
     let med_f0 = median_f0(&all_syllable_clips).unwrap_or(220.0);
     log::info!("Median F0: {:.1} Hz", med_f0);
 
+    // Apply --no-* overrides
+    let _vibrato = args.vibrato && !args.no_vibrato;
+    let chorus = args.chorus && !args.no_chorus;
+
     // Plan note mapping
-    let chorus_prob = if args.chorus { 0.3 } else { 0.0 };
+    let chorus_prob = if chorus { 0.3 } else { 0.0 };
     let mappings = plan_note_mapping(
         &track.notes,
         all_syllable_clips.len(),
@@ -656,6 +704,10 @@ fn run_speak(args: SpeakArgs) -> Result<()> {
         args.timing_strictness,
     );
 
+    // Apply --no-* overrides
+    let normalize_volume = args.normalize_volume && !args.no_normalize_volume;
+    let pitch_correct = args.pitch_correct && !args.no_pitch_correct;
+
     // Assemble
     log::info!("Assembling output audio");
     let output_path = assemble(
@@ -665,8 +717,8 @@ fn run_speak(args: SpeakArgs) -> Result<()> {
         &run_dir,
         args.crossfade,
         None, // pitch_shifts - use default
-        args.normalize_volume,
-        args.pitch_correct,
+        normalize_volume,
+        pitch_correct,
     )?;
 
     println!("Target text: {}", target_text);

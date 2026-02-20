@@ -779,13 +779,13 @@ fn start_collage(app: &mut GlottisdaleApp) {
     args.extend(["--sentence-pause".into(), s.sentence_pause.clone()]);
     args.extend(["--word-crossfade".into(), s.word_crossfade_ms.to_string()]);
     args.extend(["--noise-level".into(), s.noise_level_db.to_string()]);
-    args.extend(["--room-tone".into(), s.room_tone.to_string()]);
-    args.extend(["--pitch-normalize".into(), s.pitch_normalize.to_string()]);
+    if !s.room_tone { args.push("--no-room-tone".into()); }
+    if !s.pitch_normalize { args.push("--no-pitch-normalize".into()); }
     args.extend(["--pitch-range".into(), s.pitch_range.to_string()]);
-    args.extend(["--breaths".into(), s.breaths.to_string()]);
+    if !s.breaths { args.push("--no-breaths".into()); }
     args.extend(["--breath-probability".into(), s.breath_probability.to_string()]);
-    args.extend(["--volume-normalize".into(), s.volume_normalize.to_string()]);
-    args.extend(["--prosodic-dynamics".into(), s.prosodic_dynamics.to_string()]);
+    if !s.volume_normalize { args.push("--no-volume-normalize".into()); }
+    if !s.prosodic_dynamics { args.push("--no-prosodic-dynamics".into()); }
     args.extend(["--stretch-factor".into(), s.stretch_factor.clone()]);
     args.extend(["--repeat-count".into(), s.repeat_count.clone()]);
     args.extend(["--stutter-count".into(), s.stutter_count.clone()]);
@@ -812,8 +812,8 @@ fn start_sing(app: &mut GlottisdaleApp) {
 
     args.extend(["--midi".into(), s.midi_dir.clone()]);
     args.extend(["--target-duration".into(), s.target_duration.to_string()]);
-    args.extend(["--vibrato".into(), s.vibrato.to_string()]);
-    args.extend(["--chorus".into(), s.chorus.to_string()]);
+    if !s.vibrato { args.push("--no-vibrato".into()); }
+    if !s.chorus { args.push("--no-chorus".into()); }
     args.extend(["--drift-range".into(), s.drift_range.to_string()]);
 
     run_cli_subprocess(state, args);
@@ -834,10 +834,10 @@ fn start_speak(app: &mut GlottisdaleApp) {
         args.extend(["--reference".into(), s.reference_path.clone()]);
     }
     args.extend(["--match-unit".into(), s.match_unit.clone()]);
-    args.extend(["--pitch-correct".into(), s.pitch_correct.to_string()]);
+    if !s.pitch_correct { args.push("--no-pitch-correct".into()); }
     args.extend(["--timing-strictness".into(), s.timing_strictness.to_string()]);
     args.extend(["--crossfade".into(), s.crossfade_ms.to_string()]);
-    args.extend(["--normalize-volume".into(), s.normalize_volume.to_string()]);
+    if !s.normalize_volume { args.push("--no-normalize-volume".into()); }
     args.extend(["--aligner".into(), app.aligner.clone()]);
 
     run_cli_subprocess(state, args);

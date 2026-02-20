@@ -99,12 +99,12 @@ Prosodic grouping:
   --crossfade MS           Syllable crossfade (default: 30)
   --word-crossfade MS      Word crossfade (default: 50)
 
-Audio polish:
-  --pitch-normalize BOOL   Normalize pitch (default: true)
-  --volume-normalize BOOL  Normalize volume (default: true)
-  --room-tone BOOL         Extract room tone (default: true)
-  --breaths BOOL           Insert breath sounds (default: true)
-  --prosodic-dynamics BOOL Phrase-level dynamics (default: true)
+Audio polish (all on by default, use --no-* to disable):
+  --no-pitch-normalize     Disable pitch normalization
+  --no-volume-normalize    Disable volume normalization
+  --no-room-tone           Disable room tone extraction
+  --no-breaths             Disable breath insertion
+  --no-prosodic-dynamics   Disable phrase-level dynamics
   --noise-level DB         Pink noise bed level (default: -40, 0=off)
   --breath-probability P   Breath insertion probability (default: 0.6)
   --pitch-range SEMI       Max pitch shift in semitones (default: 5)
@@ -148,8 +148,8 @@ Options:
   --whisper-model MODEL    tiny/base/small/medium (default: base)
   --drift-range SEMI       Max pitch drift from melody (default: 2.0)
   --no-cache               Disable file-based caching (re-run everything)
-  --vibrato BOOL           Toggle vibrato (default: true)
-  --chorus BOOL            Toggle chorus (default: true)
+  --no-vibrato             Disable vibrato
+  --no-chorus              Disable chorus
 ```
 
 ### `glottisdale speak`
@@ -178,10 +178,10 @@ Options:
 
 Speak-specific:
   --match-unit UNIT        syllable or phoneme (default: syllable)
-  --pitch-correct BOOL     Adjust pitch (default: true)
+  --no-pitch-correct       Disable pitch correction (on by default)
   --timing-strictness F    How closely to follow reference timing, 0.0-1.0 (default: 0.8)
   --crossfade MS           Crossfade between syllables in ms (default: 10)
-  --normalize-volume BOOL  Normalize volume (default: true)
+  --no-normalize-volume    Disable volume normalization (on by default)
 ```
 
 ### `glottisdale-gui`
