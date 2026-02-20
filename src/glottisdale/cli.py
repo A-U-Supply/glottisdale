@@ -26,6 +26,8 @@ def _add_shared_args(parser: argparse.ArgumentParser) -> None:
                         help="Show all warnings from dependencies (default: quiet)")
     parser.add_argument("--no-cache", action="store_true", default=False,
                         help="Disable file-based caching of extraction, transcription, and alignment")
+    parser.add_argument("--run-name", default=None,
+                        help="Custom run name (default: auto-generated thematic name)")
 
 
 def _add_collage_args(parser: argparse.ArgumentParser) -> None:
@@ -192,9 +194,15 @@ def _run_collage(args: argparse.Namespace) -> None:
         print("Error: at least one input file is required", file=sys.stderr)
         sys.exit(1)
 
+    from glottisdale.names import create_run_dir
+
+    output_root = Path(args.output_dir)
+    run_dir = create_run_dir(output_root, seed=args.seed, run_name=args.run_name)
+    print(f"Run: {run_dir.name}")
+
     result = process(
         input_paths=input_paths,
-        output_dir=args.output_dir,
+        output_dir=run_dir,
         syllables_per_clip=args.syllables_per_word,
         target_duration=args.target_duration,
         crossfade_ms=args.crossfade,
@@ -260,8 +268,13 @@ def _run_sing(args: argparse.Namespace) -> None:
         print("Error: at least one input audio file is required", file=sys.stderr)
         sys.exit(1)
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    from glottisdale.names import create_run_dir
+
+    output_root = Path(args.output_dir)
+    run_dir = create_run_dir(output_root, seed=args.seed, run_name=args.run_name)
+    print(f"Run: {run_dir.name}")
+
+    output_dir = run_dir
     work_dir = output_dir / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
 
