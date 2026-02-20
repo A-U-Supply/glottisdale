@@ -318,7 +318,9 @@ def main(argv: list[str] | None = None) -> None:
         warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
         warnings.filterwarnings("ignore", message=".*backend.*parameter.*TorchCodec")
         warnings.filterwarnings("ignore", message="Duplicate name")
-        logging.getLogger("phonemizer").setLevel(logging.ERROR)
+        # phonemizer's get_logger() resets handlers and level on each call,
+        # so setLevel alone gets clobbered. A filter on the logger persists.
+        logging.getLogger("phonemizer").addFilter(lambda record: record.levelno >= logging.ERROR)
         logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
         logging.getLogger("httpx").setLevel(logging.ERROR)
         logging.getLogger("bournemouth_aligner").setLevel(logging.ERROR)
