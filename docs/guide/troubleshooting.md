@@ -20,23 +20,29 @@ After installing, open a new terminal window and run `ffmpeg -version` to confir
 
 ---
 
-### `pip install` fails with a version error
+### `whisper: command not found`
 
-**Cause:** Glottisdale requires Python 3.11 or later. You may have an older version.
+**Cause:** OpenAI Whisper is not installed, or Python's scripts directory is not on your PATH.
 
-**Fix:** Check your version:
+**Fix:** Install Whisper with pip:
 
 ```bash
-python --version
+pip install openai-whisper
 ```
 
-If it shows 3.10 or lower, install a newer Python:
+If `whisper --help` still fails after install, your Python scripts directory may not be on your PATH. The typical location is `~/.local/bin`. Add it to your shell config:
 
-- **macOS:** `brew install python`
-- **Linux:** `sudo apt install python3.12` (or use [pyenv](https://github.com/pyenv/pyenv))
-- **Windows:** Download from [python.org](https://www.python.org/downloads/) and check "Add Python to PATH" during install.
+```bash
+# bash / zsh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-> On some systems you may need to use `pip3` instead of `pip`.
+```fish
+# fish
+fish_add_path ~/.local/bin
+```
+
+Then open a new terminal window.
 
 ---
 
@@ -70,39 +76,38 @@ glottisdale collage input.mp4 --aligner default
 
 ---
 
-### `ModuleNotFoundError: No module named 'pretty_midi'`
+### `command not found: glottisdale`
 
-**Cause:** The `sing` subcommand requires the `pretty_midi` package, which is not included in the core install.
+**Cause:** The glottisdale binary is not on your system PATH.
 
-**Fix:** Reinstall with the `[sing]` extra:
+**Fix:**
+
+If you downloaded a pre-built binary, make sure you moved it to a directory on your PATH:
 
 ```bash
-pip install "glottisdale[sing] @ git+https://github.com/A-U-Supply/glottisdale.git"
+sudo mv glottisdale-* /usr/local/bin/glottisdale
+chmod +x /usr/local/bin/glottisdale
+```
+
+If you built from source, the binary is at `./target/release/glottisdale`. Either add it to your PATH or copy it:
+
+```bash
+sudo cp target/release/glottisdale /usr/local/bin/
 ```
 
 ---
 
-### `command not found: glottisdale`
+### Build fails with `alsa-sys` error (Linux)
 
-**Cause:** Python's scripts directory is not on your system PATH, so your shell cannot find the `glottisdale` command.
+**Cause:** The Rust `rodio` audio playback library requires ALSA development headers on Linux.
 
 **Fix:**
 
-- **macOS / Linux:** Add the Python scripts directory to your PATH. The typical location is `~/.local/bin`. Add this to your shell config file (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`):
+```bash
+sudo apt install libasound2-dev
+```
 
-  ```bash
-  # bash / zsh
-  export PATH="$HOME/.local/bin:$PATH"
-  ```
-
-  ```fish
-  # fish
-  fish_add_path ~/.local/bin
-  ```
-
-  Then open a new terminal window.
-
-- **Windows:** During the Python install, make sure you checked "Add Python to PATH". If you missed it, find your Python Scripts folder (usually `C:\Users\<you>\AppData\Local\Programs\Python\Python3xx\Scripts`) and add it to your system PATH via Settings > System > About > Advanced system settings > Environment Variables.
+Then retry the build with `cargo build --release`.
 
 ---
 
@@ -256,8 +261,7 @@ export GLOTTISDALE_CACHE_DIR=/path/to/custom/cache
 ### macOS
 
 - **Homebrew paths:** If you installed tools via Homebrew on Apple Silicon, they live under `/opt/homebrew/bin/`. This should be on your PATH by default. If not, add it to your shell config.
-- **Apple Silicon (M-series chips):** Whisper can use the MPS (Metal Performance Shaders) backend on Apple Silicon for faster transcription. This happens automatically if you have a compatible PyTorch version. No extra setup needed.
-- **Gatekeeper warnings:** If macOS blocks a downloaded tool, go to System Settings > Privacy & Security and click "Allow Anyway".
+- **Gatekeeper warnings:** If macOS blocks the downloaded binary, go to System Settings > Privacy & Security and click "Allow Anyway".
 
 ### Windows
 
@@ -267,7 +271,6 @@ export GLOTTISDALE_CACHE_DIR=/path/to/custom/cache
 
 ### Linux
 
-- **Debian/Ubuntu packages:** `sudo apt install ffmpeg espeak-ng rubberband-cli python3 python3-pip`
-- **Fedora:** `sudo dnf install ffmpeg espeak-ng rubberband python3 python3-pip`
-- **Arch:** `sudo pacman -S ffmpeg espeak-ng rubberband python python-pip`
-- **Permissions:** If `pip install` fails with a permissions error, use `pip install --user` or set up a virtual environment with `python3 -m venv .venv && source .venv/bin/activate`.
+- **Debian/Ubuntu packages:** `sudo apt install ffmpeg espeak-ng rubberband-cli libasound2-dev`
+- **Fedora:** `sudo dnf install ffmpeg espeak-ng rubberband`
+- **Arch:** `sudo pacman -S ffmpeg espeak-ng rubberband`

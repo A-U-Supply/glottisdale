@@ -1,8 +1,12 @@
-# Legacy Design Documents
+# Legacy Documents
 
-These design documents were created during Glottisdale's development in the `ausupply.github.io` monorepo. They document the original design decisions and implementation plans.
+These documents are from Glottisdale's original Python implementation and its development in the `ausupply.github.io` monorepo. They document the original design decisions, implementation plans, and the Python API. The project was rewritten in Rust in February 2026.
 
-## Documents
+## Python API Reference
+
+- `python-api.md` — Python library API reference (pre-Rust rewrite)
+
+## Design Documents
 
 - `2026-02-15-glottisdale-design.md` — Original syllable collage design
 - `2026-02-15-glottisdale-implementation.md` — Original implementation plan

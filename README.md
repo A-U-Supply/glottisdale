@@ -33,13 +33,21 @@ cargo build --release
 ./target/release/glottisdale-gui
 ```
 
-### Python (legacy)
+### Pre-built binary
+
+Download from [GitHub Releases](https://github.com/A-U-Supply/glottisdale/releases):
 
 ```bash
-pip install git+https://github.com/A-U-Supply/glottisdale.git
+# Linux
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-linux-amd64 -o glottisdale
+chmod +x glottisdale && sudo mv glottisdale /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-darwin-arm64 -o glottisdale
+chmod +x glottisdale && sudo mv glottisdale /usr/local/bin/
 ```
 
-Requires Python 3.11+ and ffmpeg. Optional extras: `[sing]` for MIDI mapping, `[bfa]` for improved syllable accuracy.
+Also requires ffmpeg and [Whisper](https://github.com/openai/whisper) (`pip install openai-whisper`).
 
 ## Architecture
 

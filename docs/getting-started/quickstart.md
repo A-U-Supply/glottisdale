@@ -112,7 +112,7 @@ This is a great way to create collages that blend multiple speakers or conversat
 
 ## Your first MIDI vocal
 
-> **Requires the `[sing]` extra.** If you haven't installed it yet, see the [vocal MIDI mapping section](install.md#i-want-vocal-midi-mapping) of the install guide. You will also need rubberband installed on your system for pitch-shifting.
+> **Requires rubberband.** If you haven't installed it yet, see the [vocal MIDI mapping section](install.md#i-want-vocal-midi-mapping) of the install guide.
 
 The `sing` command takes the same speech audio, but instead of shuffling syllables randomly, it maps them onto a MIDI melody. Each syllable gets pitch-shifted and time-stretched to match a note in the melody.
 
@@ -204,4 +204,4 @@ Now that you have heard what glottisdale can do with the defaults, here is where
 
 - **[Philosophy](../reference/philosophy.md)** -- Understand why glottisdale works the way it does, from why syllables are the right unit of speech to break apart, to the audio polish decisions that make the output sound natural.
 
-If you are a developer and want to use glottisdale as a Python library rather than a CLI tool, see the **[Python API](../reference/python-api.md)** reference for programmatic usage and data types.
+If you are a developer, check out the **[Architecture](../reference/architecture.md)** reference for details on the Rust module structure and how the pipelines work under the hood.
