@@ -454,6 +454,29 @@ fn run_collage(args: CollageArgs) -> Result<()> {
         &config,
     )?;
 
+    // Create clips.zip from the clips directory
+    let clips_dir = run_dir.join("clips");
+    let zip_path = run_dir.join("clips.zip");
+    if clips_dir.is_dir() {
+        let zip_file = std::fs::File::create(&zip_path)?;
+        let mut zip = zip::ZipWriter::new(zip_file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        for entry in std::fs::read_dir(&clips_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map(|e| e == "wav").unwrap_or(false) {
+                let name = path.file_name().unwrap().to_string_lossy().to_string();
+                zip.start_file(&name, options)?;
+                let data = std::fs::read(&path)?;
+                std::io::Write::write_all(&mut zip, &data)?;
+            }
+        }
+        zip.finish()?;
+        log::info!("Created {}", zip_path.display());
+    }
+
     println!("Processed {} source file(s)", args.shared.input_files.len());
     println!("Selected {} clips", result.clips.len());
     println!("Output: {}", result.concatenated.display());
