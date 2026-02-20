@@ -298,6 +298,62 @@ def test_cli_passes_verbose_to_process(tmp_path):
         assert call_kwargs["verbose"] is False
 
 
+def test_no_cache_flag_default():
+    """Caching is on by default (no_cache is False)."""
+    args = parse_args(["collage"])
+    assert args.no_cache is False
+
+
+def test_no_cache_flag_set():
+    """--no-cache disables caching."""
+    args = parse_args(["collage", "--no-cache"])
+    assert args.no_cache is True
+
+
+def test_no_cache_flag_sing():
+    """--no-cache works on sing subcommand too."""
+    args = parse_args(["sing", "--midi", "/tmp/midi", "--no-cache"])
+    assert args.no_cache is True
+
+
+def test_cli_passes_no_cache_to_process(tmp_path):
+    """CLI should pass use_cache=False when --no-cache is given."""
+    from glottisdale.cli import main
+
+    input_file = tmp_path / "test.wav"
+    input_file.touch()
+
+    mock_result = MagicMock()
+    mock_result.transcript = "test"
+    mock_result.clips = []
+    mock_result.concatenated = MagicMock()
+    mock_result.concatenated.name = "concatenated.wav"
+
+    with patch("glottisdale.collage.process") as mock_process:
+        mock_process.return_value = mock_result
+        main([
+            "collage",
+            str(input_file),
+            "--output-dir", str(tmp_path / "out"),
+            "--no-cache",
+        ])
+
+        call_kwargs = mock_process.call_args[1]
+        assert call_kwargs["use_cache"] is False
+
+    # Default: use_cache should be True
+    with patch("glottisdale.collage.process") as mock_process:
+        mock_process.return_value = mock_result
+        main([
+            "collage",
+            str(input_file),
+            "--output-dir", str(tmp_path / "out"),
+        ])
+
+        call_kwargs = mock_process.call_args[1]
+        assert call_kwargs["use_cache"] is True
+
+
 def test_parse_sing_defaults():
     args = parse_args(["sing", "--midi", "/tmp/midi"])
     assert args.command == "sing"

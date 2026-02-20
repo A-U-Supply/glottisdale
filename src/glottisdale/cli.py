@@ -24,6 +24,8 @@ def _add_shared_args(parser: argparse.ArgumentParser) -> None:
                         help="RNG seed for reproducible output")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
                         help="Show all warnings from dependencies (default: quiet)")
+    parser.add_argument("--no-cache", action="store_true", default=False,
+                        help="Disable file-based caching of extraction, transcription, and alignment")
 
 
 def _add_collage_args(parser: argparse.ArgumentParser) -> None:
@@ -226,6 +228,7 @@ def _run_collage(args: argparse.Namespace) -> None:
         stutter=args.stutter,
         stutter_count=args.stutter_count,
         verbose=args.verbose,
+        use_cache=not args.no_cache,
     )
 
     print(f"Processed {len(args.input_files)} source file(s)")
@@ -272,7 +275,10 @@ def _run_sing(args: argparse.Namespace) -> None:
 
     # Prepare syllables from audio files
     logger.info(f"Preparing syllables from {len(input_paths)} audio file(s)")
-    syllables = prepare_syllables(input_paths, work_dir, args.whisper_model)
+    syllables = prepare_syllables(
+        input_paths, work_dir, args.whisper_model,
+        use_cache=not args.no_cache,
+    )
     logger.info(f"Prepared {len(syllables)} syllables")
 
     # Compute median F0

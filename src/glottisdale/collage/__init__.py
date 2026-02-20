@@ -242,6 +242,7 @@ def process(
     stutter_count: str = "1-2",
     # Misc
     verbose: bool = False,
+    use_cache: bool = True,
 ) -> Result:
     """Run the full glottisdale collage pipeline."""
     rng = random.Random(seed)
@@ -290,12 +291,29 @@ def process(
             input_path = Path(input_path)
             source_name = input_path.stem
 
+            # Hash input for cache lookups
+            input_hash = None
+            if use_cache:
+                from glottisdale.cache import file_hash, get_cached_audio, store_audio_cache
+                try:
+                    input_hash = file_hash(input_path)
+                except OSError:
+                    input_hash = None
+
             # Extract audio (resample to 16kHz)
             audio_path = tmpdir / f"{source_name}.wav"
-            extract_audio(input_path, audio_path)
+            cached_audio = get_cached_audio(input_hash) if input_hash else None
+            if cached_audio is not None:
+                shutil.copy2(cached_audio, audio_path)
+            else:
+                extract_audio(input_path, audio_path)
+                if input_hash:
+                    store_audio_cache(input_hash, audio_path)
 
             # Transcribe and syllabify
-            result = alignment_engine.process(audio_path)
+            result = alignment_engine.process(
+                audio_path, audio_hash=input_hash, use_cache=use_cache,
+            )
             all_transcripts.append(f"[{source_name}] {result['text']}")
             all_syllables[source_name] = result["syllables"]
 

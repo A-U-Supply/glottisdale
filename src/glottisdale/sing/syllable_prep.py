@@ -49,6 +49,7 @@ def prepare_syllables(
     work_dir: Path,
     whisper_model: str = "base",
     max_semitone_shift: float = 5.0,
+    use_cache: bool = True,
 ) -> list[NormalizedSyllable]:
     """Full pipeline: transcribe, syllabify, cut, normalize.
 
@@ -57,6 +58,7 @@ def prepare_syllables(
         work_dir: Working directory for intermediate files.
         whisper_model: Whisper model size.
         max_semitone_shift: Maximum pitch normalization shift.
+        use_cache: Whether to use file-based caching for extraction and transcription.
 
     Returns:
         List of NormalizedSyllable with normalized clips.
@@ -68,12 +70,31 @@ def prepare_syllables(
     clip_index = 0
 
     for input_path in input_paths:
+        # Hash input for cache lookups
+        input_hash = None
+        if use_cache:
+            from glottisdale.cache import file_hash, get_cached_audio, store_audio_cache
+            try:
+                input_hash = file_hash(input_path)
+            except OSError:
+                input_hash = None
+
         # Extract audio
         wav_path = work_dir / f"{input_path.stem}_audio.wav"
-        extract_audio(input_path, wav_path)
+        cached_audio = get_cached_audio(input_hash) if input_hash else None
+        if cached_audio is not None:
+            import shutil
+            shutil.copy2(cached_audio, wav_path)
+        else:
+            extract_audio(input_path, wav_path)
+            if input_hash:
+                store_audio_cache(input_hash, wav_path)
 
         # Transcribe
-        result = transcribe(wav_path, model_name=whisper_model)
+        result = transcribe(
+            wav_path, model_name=whisper_model,
+            audio_hash=input_hash, use_cache=use_cache,
+        )
         words = result.get("words", [])
         if not words:
             logger.warning(f"No words transcribed from {input_path}")
