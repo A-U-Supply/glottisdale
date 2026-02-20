@@ -1,8 +1,8 @@
 # Glottisdale
 
-Syllable-level audio collage and vocal MIDI mapping tool.
+Syllable-level audio collage, vocal MIDI mapping, and phonetic speech reconstruction tool.
 
-Glottisdale takes speech audio, segments it into syllables, and reassembles them into surreal audio collages. It can also map syllable clips onto MIDI melodies to produce "drunk choir" vocal tracks. Feed it any video or audio with speech and get back something that sounds like language but isn't.
+Glottisdale takes speech audio, segments it into syllables, and reassembles them into surreal audio collages. It can also map syllable clips onto MIDI melodies to produce "drunk choir" vocal tracks, or reconstruct target text by matching syllable fragments from source audio using phonetic distance. Feed it any video or audio with speech and get back something that sounds like language but isn't.
 
 ## Quick Start
 
@@ -102,6 +102,38 @@ Options:
   --no-cache               Disable file-based caching (re-run everything)
   --vibrato / --no-vibrato (default: on)
   --chorus / --no-chorus   (default: on)
+```
+
+### `glottisdale speak`
+
+Reconstruct target text using syllable fragments from source audio.
+
+```
+glottisdale speak [input_files...] --text TEXT [options]
+glottisdale speak [input_files...] --reference REF_AUDIO [options]
+
+Positional:
+  input_files              Audio/video files to use as syllable source
+
+Target (one required):
+  --text TEXT              Target text to reconstruct using source syllables
+  --reference FILE         Reference audio -- transcribed for target text + timing template
+
+Options:
+  --output-dir DIR         Output root directory (default: ./glottisdale-output)
+  --run-name NAME          Custom run name (default: auto-generated thematic name)
+  --seed N                 RNG seed for reproducibility
+  --whisper-model MODEL    tiny/base/small/medium (default: base)
+  --aligner MODE           auto/default/bfa (default: auto)
+  --no-cache               Disable file-based caching (re-run everything)
+  -v, --verbose            Show all dependency warnings (default: quiet)
+
+Speak-specific:
+  --match-unit UNIT        syllable or phoneme (default: syllable)
+  --pitch-correct / --no-pitch-correct    (default: on)
+  --timing-strictness F    How closely to follow reference timing, 0.0-1.0 (default: 0.8)
+  --crossfade MS           Crossfade between syllables in ms (default: 10)
+  --normalize-volume / --no-normalize-volume  (default: on)
 ```
 
 ## Documentation

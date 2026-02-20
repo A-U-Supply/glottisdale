@@ -1,0 +1,60 @@
+"""Tests for syllable bank construction."""
+
+from glottisdale.speak.syllable_bank import SyllableEntry, build_bank
+from glottisdale.types import Phoneme, Syllable
+
+
+def _make_syllable(phoneme_labels: list[str], start: float, end: float,
+                   word: str = "test", word_index: int = 0) -> Syllable:
+    """Helper to create a Syllable with Phoneme objects."""
+    n = len(phoneme_labels)
+    dur = (end - start) / n if n else 0
+    phonemes = [
+        Phoneme(label=lab, start=start + i * dur, end=start + (i + 1) * dur)
+        for i, lab in enumerate(phoneme_labels)
+    ]
+    return Syllable(phonemes=phonemes, start=start, end=end,
+                    word=word, word_index=word_index)
+
+
+class TestBuildBank:
+    def test_builds_entries_from_syllables(self):
+        syls = [
+            _make_syllable(["B", "AH1"], 0.0, 0.3, word="but"),
+            _make_syllable(["K", "AE1", "T"], 0.3, 0.7, word="cat"),
+        ]
+        bank = build_bank(syls, source_path="test.wav")
+        assert len(bank) == 2
+        assert bank[0].phoneme_labels == ["B", "AH1"]
+        assert bank[0].source_path == "test.wav"
+        assert bank[1].phoneme_labels == ["K", "AE1", "T"]
+
+    def test_entry_has_timing(self):
+        syls = [_make_syllable(["B", "AH1"], 1.5, 2.0)]
+        bank = build_bank(syls, source_path="test.wav")
+        assert bank[0].start == 1.5
+        assert bank[0].end == 2.0
+
+    def test_entry_has_stress(self):
+        syls = [_make_syllable(["B", "AH1"], 0.0, 0.3)]
+        bank = build_bank(syls, source_path="test.wav")
+        assert bank[0].stress == 1
+
+    def test_entry_stress_none_for_no_vowel(self):
+        """Consonant-only syllable (edge case) has no stress."""
+        syls = [_make_syllable(["S", "T"], 0.0, 0.2)]
+        bank = build_bank(syls, source_path="test.wav")
+        assert bank[0].stress is None
+
+    def test_empty_syllables(self):
+        bank = build_bank([], source_path="test.wav")
+        assert bank == []
+
+    def test_bank_to_json(self):
+        """Bank entries serialize to JSON-friendly dicts."""
+        syls = [_make_syllable(["B", "AH1"], 0.0, 0.3, word="but")]
+        bank = build_bank(syls, source_path="test.wav")
+        d = bank[0].to_dict()
+        assert d["phonemes"] == ["B", "AH1"]
+        assert d["word"] == "but"
+        assert d["source"] == "test.wav"

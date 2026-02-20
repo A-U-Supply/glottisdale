@@ -1,6 +1,6 @@
 # Architecture
 
-Glottisdale has two pipelines: **collage** (syllable-level audio collage) and **sing** (vocal MIDI mapping). Both share a common foundation of audio extraction, Whisper transcription, and g2p syllabification, then diverge into their respective assembly strategies.
+Glottisdale has three pipelines: **collage** (syllable-level audio collage), **sing** (vocal MIDI mapping), and **speak** (phonetic speech reconstruction). All three share a common foundation of audio extraction, Whisper transcription, and g2p syllabification, then diverge into their respective assembly strategies.
 
 ## Collage pipeline
 
@@ -117,11 +117,57 @@ normalized clips   NoteMapping list
         [10] mix_tracks -----> full_mix.wav
 ```
 
+## Speak pipeline
+
+The speak pipeline reconstructs target text using syllable fragments from source audio. It builds a phonetically indexed bank of source syllables, converts target text to ARPABET, matches each target syllable to the closest source syllable by articulatory feature distance, and assembles the matched clips into output audio.
+
+| Step | Operation | Source |
+|------|-----------|--------|
+| 1 | **Build source syllable bank** -- transcribe and syllabify all source audio files, then index each syllable with its ARPABET phonemes, timing, stress level, and source file path | `speak/syllable_bank.py:build_bank()` (via `collage/align.py:get_aligner()`) |
+| 2 | **Convert target text to ARPABET syllables** -- g2p_en converts target words to phoneme sequences, ARPABET syllabifier splits into syllables | `speak/target_text.py:text_to_syllables()` |
+| 3 | **Match target syllables to source bank** -- compute articulatory feature distance between each target syllable and every bank entry, select the closest match with stress-level tie-breaking | `speak/matcher.py:match_syllables()` (via `speak/phonetic_distance.py`) |
+| 4 | **Plan timing** -- in text mode, space syllables uniformly with word-boundary pauses; in reference mode, blend source duration with reference timing based on strictness parameter | `speak/assembler.py:plan_timing()` |
+| 5 | **Assemble audio** -- cut each matched syllable from the source WAV, time-stretch if needed to match planned duration, optionally pitch-shift, then concatenate all clips with crossfade | `speak/assembler.py:assemble()` |
+| 6 | **Write output files** -- `speak.wav` (assembled audio), `match-log.json` (per-syllable match details with distances), `syllable-bank.json` (full source bank index) | `speak/__init__.py:process()` |
+
+### Data flow
+
+```
+input.mp4 [+ --text or --reference]
+  |
+  v
+[1] transcribe + syllabify source -----> Syllable objects
+  |
+  v
+[1] build_bank -----> SyllableEntry list (phonemes, timing, stress)
+  |                            |
+  |                            v
+  |                   syllable-bank.json
+  |
+  v
+[2] text_to_syllables -----> target TextSyllable list
+  |
+  v
+[3] match_syllables -----> MatchResult list (target -> source, distance)
+  |                            |
+  |                            v
+  |                   match-log.json
+  |
+  v
+[4] plan_timing -----> TimingPlan list (start, duration, stretch)
+  |
+  v
+[5] assemble -----> cut + stretch + concatenate
+  |
+  v
+speak.wav
+```
+
 ## Module map
 
 | Module | Purpose |
 |--------|---------|
-| `cli.py` | CLI argument parsing (`argparse`) and subcommand dispatch (`collage`, `sing`) |
+| `cli.py` | CLI argument parsing (`argparse`) and subcommand dispatch (`collage`, `sing`, `speak`) |
 | `types.py` | Core dataclasses: `Phoneme`, `Syllable`, `Clip`, `Result` |
 | `audio.py` | FFmpeg/ffprobe wrappers: extract, cut, concatenate, crossfade, pitch shift, time stretch, volume adjust, silence generation, mixing |
 | `analysis.py` | WAV I/O (scipy), RMS energy, windowed RMS, autocorrelation F0 estimation, room tone detection, breath detection, pink noise generation |
@@ -140,3 +186,9 @@ normalized clips   NoteMapping list
 | `sing/vocal_mapper.py` | Note-to-syllable mapping (`plan_note_mapping`), per-note rendering with rubberband pitch/time, vibrato, and chorus effects |
 | `sing/synthesize.py` | MIDI sine-wave synthesizer with noise-burst drum synthesis |
 | `sing/mixer.py` | Vocal + backing track mixing via ffmpeg `amix` filter |
+| `speak/__init__.py` | Speak pipeline orchestration: build bank, convert target text, match, plan timing, assemble, write outputs |
+| `speak/phonetic_distance.py` | ARPABET articulatory feature matrix and phoneme/syllable distance calculations |
+| `speak/syllable_bank.py` | `SyllableEntry` dataclass and `build_bank()` for indexing source syllables with phonemes, timing, and stress |
+| `speak/target_text.py` | g2p_en-based target text to ARPABET syllable conversion with word boundary tracking |
+| `speak/matcher.py` | Syllable and phoneme matching against the source bank using phonetic distance with stress tie-breaking |
+| `speak/assembler.py` | Timing planner (text mode and reference mode) and audio assembler (cut, stretch, pitch-shift, concatenate) |

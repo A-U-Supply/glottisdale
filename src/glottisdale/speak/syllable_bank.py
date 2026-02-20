@@ -1,0 +1,58 @@
+"""Build an indexed bank of source syllables for matching."""
+
+from dataclasses import dataclass
+from glottisdale.types import Syllable
+
+
+@dataclass
+class SyllableEntry:
+    """A source syllable with metadata for matching."""
+    phoneme_labels: list[str]   # ARPABET labels (with stress)
+    start: float                # seconds in source audio
+    end: float                  # seconds in source audio
+    word: str                   # parent word
+    stress: int | None          # stress level (0, 1, 2) or None
+    source_path: str            # source audio file path
+    index: int                  # position in bank
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+    def to_dict(self) -> dict:
+        """Serialize for JSON output."""
+        return {
+            "phonemes": self.phoneme_labels,
+            "start": round(self.start, 4),
+            "end": round(self.end, 4),
+            "duration": round(self.duration, 4),
+            "word": self.word,
+            "stress": self.stress,
+            "source": self.source_path,
+            "index": self.index,
+        }
+
+
+def _extract_stress(phoneme_labels: list[str]) -> int | None:
+    """Extract stress level from ARPABET vowel phonemes."""
+    for label in phoneme_labels:
+        if label and label[-1] in "012":
+            return int(label[-1])
+    return None
+
+
+def build_bank(syllables: list[Syllable], source_path: str) -> list[SyllableEntry]:
+    """Build a syllable bank from aligned source syllables."""
+    entries = []
+    for i, syl in enumerate(syllables):
+        labels = [p.label for p in syl.phonemes]
+        entries.append(SyllableEntry(
+            phoneme_labels=labels,
+            start=syl.start,
+            end=syl.end,
+            word=syl.word,
+            stress=_extract_stress(labels),
+            source_path=source_path,
+            index=i,
+        ))
+    return entries
