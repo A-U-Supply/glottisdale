@@ -21,6 +21,7 @@ That's it. Glottisdale will take your video, extract the speech, chop it into in
 You will see progress output as it works through the pipeline:
 
 ```
+Run: 2026-02-19-breathy-bassoon
 glottisdale.collage INFO: Processing 1 input file(s)
 glottisdale.collage INFO: Extracting audio from your-video.mp4
 glottisdale.collage INFO: Transcribing with Whisper (base model)
@@ -35,16 +36,37 @@ Output:
   clips.zip
 ```
 
+The first line shows the run name — a unique, speech-themed identifier for this run.
+
 The first run takes a minute or two because glottisdale needs to download the Whisper speech recognition model (about 140 MB for the default `base` model). This only happens once. Subsequent runs on the same file are much faster because glottisdale caches the transcription and alignment results.
 
 ### Where to find the output
 
-When it finishes, look inside the `./glottisdale-output/` folder. You will find:
+When it finishes, look inside `./glottisdale-output/`. Each run creates its own subdirectory with a unique name like `2026-02-19-breathy-bassoon/`:
+
+```
+glottisdale-output/
+└── 2026-02-19-breathy-bassoon/
+    ├── concatenated.wav
+    ├── clips/
+    │   ├── 001_hel.wav
+    │   ├── 002_lo.wav
+    │   └── ...
+    ├── clips.zip
+    └── manifest.json
+```
 
 | File | What it is |
 |------|-----------|
 | `concatenated.wav` | Your finished collage -- a single audio file you can play in any media player |
 | `clips.zip` | A zip archive containing every individual syllable clip that was used, in case you want to inspect or remix them yourself |
+
+Runs never overwrite each other -- every run gets a fresh directory, so you can compare results side by side. If you want a specific name instead of the auto-generated one, use `--run-name`:
+
+```bash
+glottisdale collage your-video.mp4 --run-name final-take
+# -> ./glottisdale-output/2026-02-19-final-take/
+```
 
 Open `concatenated.wav` in your audio player and listen. You should hear something that sounds like speech -- the voice, the rhythm, the breathing are all familiar -- but the words are nonsense. That is the collage.
 
@@ -111,7 +133,7 @@ glottisdale sing your-video.mp4 --midi path/to/midi-folder/
 
 ### What you get
 
-The output lands in `./glottisdale-output/` just like before:
+The output lands in a unique subdirectory inside `./glottisdale-output/`, just like collage:
 
 | File | What it is |
 |------|-----------|

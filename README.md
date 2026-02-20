@@ -10,7 +10,7 @@ Glottisdale takes speech audio, segments it into syllables, and reassembles them
 glottisdale collage your-video.mp4
 ```
 
-Output lands in `./glottisdale-output/` — `concatenated.wav` is the full collage, `clips.zip` has the individual pieces. See the [Quick Start guide](docs/getting-started/quickstart.md) for more.
+Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-breathy-bassoon/` — `concatenated.wav` is the full collage, `clips.zip` has the individual pieces. Runs never overwrite each other. See the [Quick Start guide](docs/getting-started/quickstart.md) for more.
 
 ## Install
 
@@ -33,7 +33,8 @@ Positional:
   input_files              Audio/video files to process
 
 Options:
-  --output-dir DIR         Output directory (default: ./glottisdale-output)
+  --output-dir DIR         Output root directory (default: ./glottisdale-output)
+  --run-name NAME          Custom run name (default: auto-generated thematic name)
   --target-duration SECS   Target duration (default: 30)
   --seed N                 RNG seed for reproducibility
   --whisper-model MODEL    tiny/base/small/medium (default: base)
@@ -92,7 +93,8 @@ Required:
   --midi DIR               Directory with MIDI files (melody.mid, etc.)
 
 Options:
-  --output-dir DIR         Output directory (default: ./glottisdale-output)
+  --output-dir DIR         Output root directory (default: ./glottisdale-output)
+  --run-name NAME          Custom run name (default: auto-generated thematic name)
   --target-duration SECS   Target duration (default: 30)
   --seed N                 RNG seed for reproducibility
   --whisper-model MODEL    tiny/base/small/medium (default: base)

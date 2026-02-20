@@ -376,3 +376,81 @@ def test_parse_sing_options():
     assert args.drift_range == 3.5
     assert args.seed == 42
     assert args.input_files == ["input.mp4"]
+
+
+def test_run_name_flag_parsed():
+    """--run-name flag is available on both subcommands."""
+    args = parse_args(["collage", "--run-name", "my-run"])
+    assert args.run_name == "my-run"
+
+
+def test_run_name_flag_default_none():
+    """--run-name defaults to None."""
+    args = parse_args(["collage"])
+    assert args.run_name is None
+
+
+def test_run_name_flag_sing():
+    args = parse_args(["sing", "--midi", "/tmp/midi", "--run-name", "take-1"])
+    assert args.run_name == "take-1"
+
+
+def test_cli_creates_run_subdir(tmp_path):
+    """CLI creates a unique run subdirectory inside output-dir."""
+    from glottisdale.cli import main
+    from pathlib import Path
+
+    input_file = tmp_path / "test.wav"
+    input_file.touch()
+
+    mock_result = MagicMock()
+    mock_result.transcript = "test"
+    mock_result.clips = []
+    mock_result.concatenated = MagicMock()
+    mock_result.concatenated.name = "concatenated.wav"
+
+    with patch("glottisdale.collage.process") as mock_process:
+        mock_process.return_value = mock_result
+        main([
+            "collage",
+            str(input_file),
+            "--output-dir", str(tmp_path / "out"),
+            "--seed", "42",
+        ])
+
+        call_kwargs = mock_process.call_args[1]
+        output_dir = Path(call_kwargs["output_dir"])
+        # Should be a subdirectory of tmp_path/out, not tmp_path/out itself
+        assert output_dir.parent == tmp_path / "out"
+        # Should contain today's date
+        from datetime import date
+        assert date.today().isoformat() in output_dir.name
+
+
+def test_cli_run_name_flag_used(tmp_path):
+    """--run-name overrides auto-generated name."""
+    from glottisdale.cli import main
+    from pathlib import Path
+
+    input_file = tmp_path / "test.wav"
+    input_file.touch()
+
+    mock_result = MagicMock()
+    mock_result.transcript = "test"
+    mock_result.clips = []
+    mock_result.concatenated = MagicMock()
+    mock_result.concatenated.name = "concatenated.wav"
+
+    with patch("glottisdale.collage.process") as mock_process:
+        mock_process.return_value = mock_result
+        main([
+            "collage",
+            str(input_file),
+            "--output-dir", str(tmp_path / "out"),
+            "--run-name", "final-take",
+        ])
+
+        call_kwargs = mock_process.call_args[1]
+        output_dir = Path(call_kwargs["output_dir"])
+        from datetime import date
+        assert output_dir.name == f"{date.today().isoformat()}-final-take"
