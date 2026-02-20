@@ -1,6 +1,6 @@
 """Tests for syllable bank construction."""
 
-from glottisdale.speak.syllable_bank import SyllableEntry, build_bank
+from glottisdale.speak.syllable_bank import SyllableEntry, build_bank, _is_phoneme
 from glottisdale.types import Phoneme, Syllable
 
 
@@ -80,3 +80,43 @@ class TestBuildBank:
         syls = [_make_syllable(["B", "AH1"], 0.0, 0.3, word="but")]
         bank = build_bank(syls, source_path="test.wav")
         assert bank[0].phoneme_labels == ["B", "AH1"]
+
+    def test_filters_punctuation_labels(self):
+        """Punctuation labels should be stripped from phoneme lists."""
+        syls = [_make_syllable(["B", ",", "AH1"], 0.0, 0.3, word="but")]
+        bank = build_bank(syls, source_path="test.wav")
+        assert len(bank) == 1
+        assert bank[0].phoneme_labels == ["B", "AH1"]
+
+    def test_skips_punctuation_only_syllables(self):
+        """Syllables with only punctuation phonemes should be excluded."""
+        syls = [
+            _make_syllable([".", ","], 0.0, 0.1, word="."),
+            _make_syllable(["B", "AH1"], 0.1, 0.4, word="but"),
+        ]
+        bank = build_bank(syls, source_path="test.wav")
+        assert len(bank) == 1
+        assert bank[0].phoneme_labels == ["B", "AH1"]
+
+    def test_filters_empty_labels(self):
+        """Empty string phoneme labels should be filtered out."""
+        syls = [_make_syllable(["", "B", "AH1"], 0.0, 0.3, word="but")]
+        bank = build_bank(syls, source_path="test.wav")
+        assert len(bank) == 1
+        assert bank[0].phoneme_labels == ["B", "AH1"]
+
+
+class TestIsPhoneme:
+    def test_valid_phonemes(self):
+        assert _is_phoneme("B") is True
+        assert _is_phoneme("AH1") is True
+        assert _is_phoneme("SH") is True
+
+    def test_punctuation(self):
+        assert _is_phoneme(",") is False
+        assert _is_phoneme(".") is False
+        assert _is_phoneme("!") is False
+        assert _is_phoneme("?") is False
+
+    def test_empty(self):
+        assert _is_phoneme("") is False

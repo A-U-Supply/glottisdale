@@ -1,9 +1,14 @@
 """Assemble matched syllables into output audio."""
 
+import logging
+import math
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from glottisdale.analysis import read_wav, compute_rms, estimate_f0
 from glottisdale.audio import (
+    adjust_volume,
     cut_clip,
     concatenate_clips,
     time_stretch_clip,
@@ -11,6 +16,8 @@ from glottisdale.audio import (
     generate_silence,
 )
 from glottisdale.speak.matcher import MatchResult
+
+logger = logging.getLogger(__name__)
 
 
 # Pause durations in seconds
@@ -102,12 +109,83 @@ def _group_contiguous_runs(
     return runs
 
 
+def _normalize_volume(clip_paths: list[Path], clips_dir: Path) -> None:
+    """Normalize volume across clips to median RMS."""
+    import numpy as np
+
+    rms_values = []
+    for clip_path in clip_paths:
+        if clip_path.exists():
+            samples, sr = read_wav(clip_path)
+            rms_values.append(compute_rms(samples))
+
+    if not rms_values:
+        return
+
+    target_rms = float(np.median(rms_values))
+    if target_rms < 1e-6:
+        return
+
+    for clip_path in clip_paths:
+        if not clip_path.exists():
+            continue
+        samples, sr = read_wav(clip_path)
+        clip_rms = compute_rms(samples)
+        if clip_rms < 1e-6:
+            continue
+        db_adjust = 20 * math.log10(target_rms / clip_rms)
+        db_adjust = max(-20, min(20, db_adjust))
+        if abs(db_adjust) >= 0.5:
+            adjusted = clips_dir / f"vol_{clip_path.name}"
+            adjust_volume(clip_path, adjusted, db_adjust)
+            shutil.move(adjusted, clip_path)
+
+
+def _normalize_pitch(
+    clip_paths: list[Path], clips_dir: Path, pitch_range: float = 5.0,
+) -> None:
+    """Normalize pitch across clips toward median F0."""
+    import numpy as np
+
+    f0_values = []
+    clip_f0s: dict[int, float] = {}
+    for i, clip_path in enumerate(clip_paths):
+        if clip_path.exists():
+            samples, sr = read_wav(clip_path)
+            f0 = estimate_f0(samples, sr)
+            if f0 is not None:
+                f0_values.append(f0)
+                clip_f0s[i] = f0
+
+    if not f0_values:
+        return
+
+    target_f0 = float(np.median(f0_values))
+    logger.info(
+        f"Pitch normalization: target F0 = {target_f0:.1f}Hz "
+        f"(from {len(f0_values)} voiced clips)"
+    )
+
+    for i, clip_path in enumerate(clip_paths):
+        f0 = clip_f0s.get(i)
+        if f0 is None or not clip_path.exists():
+            continue
+        semitones_shift = 12 * math.log2(target_f0 / f0)
+        semitones_shift = max(-pitch_range, min(pitch_range, semitones_shift))
+        if abs(semitones_shift) >= 0.1:
+            shifted = clips_dir / f"pitched_{clip_path.name}"
+            pitch_shift_clip(clip_path, shifted, semitones_shift)
+            shutil.move(shifted, clip_path)
+
+
 def assemble(
     matches: list[MatchResult],
     timing: list[TimingPlan],
     output_dir: Path,
-    crossfade_ms: float = 10,
+    crossfade_ms: float = 40,
     pitch_shifts: list[float] | None = None,
+    normalize_volume: bool = True,
+    normalize_pitch: bool = True,
 ) -> Path:
     """Cut, stretch, and concatenate matched syllables into output audio.
 
@@ -120,6 +198,8 @@ def assemble(
         output_dir: Directory for intermediate and output files.
         crossfade_ms: Crossfade between syllables in ms.
         pitch_shifts: Optional per-syllable pitch shift in semitones.
+        normalize_volume: Whether to normalize volume across clips.
+        normalize_pitch: Whether to normalize pitch across clips.
 
     Returns:
         Path to the assembled output WAV.
@@ -177,6 +257,19 @@ def assemble(
             next_start = timing[runs[run_idx + 1][0]].target_start
             gap = max(0.0, next_start - this_end) * 1000  # ms
             gap_durations.append(gap)
+
+    # Normalize volume and pitch across clips
+    if normalize_volume:
+        try:
+            _normalize_volume(clip_paths, clips_dir)
+        except Exception:
+            logger.debug("Volume normalization failed, skipping")
+
+    if normalize_pitch:
+        try:
+            _normalize_pitch(clip_paths, clips_dir)
+        except Exception:
+            logger.debug("Pitch normalization failed, skipping")
 
     # Concatenate all clips
     output_path = output_dir / "speak.wav"

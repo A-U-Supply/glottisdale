@@ -4,10 +4,14 @@ import json
 import logging
 from pathlib import Path
 
+import shutil
+
+from glottisdale.analysis import read_wav, write_wav, find_room_tone
 from glottisdale.audio import (
     cut_clip,
     concatenate_clips,
     extract_audio,
+    mix_audio,
 )
 from glottisdale.collage.align import get_aligner
 from glottisdale.types import Result
@@ -23,7 +27,7 @@ def process(
     match_unit: str = "syllable",
     pitch_correct: bool = True,
     timing_strictness: float = 0.8,
-    crossfade_ms: float = 10,
+    crossfade_ms: float = 40,
     normalize_volume: bool = True,
     whisper_model: str = "base",
     aligner: str = "auto",
@@ -138,9 +142,37 @@ def process(
         timing=timing,
         output_dir=output_dir,
         crossfade_ms=crossfade_ms,
+        normalize_volume=normalize_volume,
+        normalize_pitch=pitch_correct,
     )
 
-    # --- 7. Write match log ---
+    # --- 7. Room tone bed ---
+    try:
+        source_audio_paths = [
+            output_dir / f"{p.stem}_16k.wav" for p in input_paths
+        ]
+        for source_audio in source_audio_paths:
+            if not source_audio.exists():
+                continue
+            samples, sr = read_wav(source_audio)
+            rt = find_room_tone(samples, sr)
+            if rt is not None:
+                rt_start, rt_end = rt
+                rt_samples = samples[int(rt_start * sr):int(rt_end * sr)]
+                rt_path = output_dir / "room_tone.wav"
+                write_wav(rt_path, rt_samples, sr)
+                mixed_path = output_dir / "speak_mixed.wav"
+                mix_audio(output_path, rt_path, mixed_path, secondary_volume_db=-40)
+                shutil.move(mixed_path, output_path)
+                logger.info(
+                    f"Room tone from {source_audio.name}: "
+                    f"{rt_start:.1f}-{rt_end:.1f}s"
+                )
+                break  # use first source with room tone
+    except Exception:
+        logger.debug("Room tone mixing failed, skipping")
+
+    # --- 8. Write match log ---
     match_log = output_dir / "match-log.json"
     match_log.write_text(json.dumps(
         {
