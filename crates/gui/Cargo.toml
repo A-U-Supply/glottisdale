@@ -11,5 +11,6 @@ path = "src/main.rs"
 glottisdale-core.workspace = true
 anyhow.workspace = true
 eframe = "0.31"
+rfd = "0.15"
 log.workspace = true
 env_logger.workspace = true
