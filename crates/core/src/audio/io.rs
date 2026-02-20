@@ -148,6 +148,40 @@ pub fn resample(samples: &[f64], from_sr: u32, to_sr: u32) -> Result<Vec<f64>> {
     Ok(output.into_iter().next().unwrap_or_default())
 }
 
+/// Extract/convert audio from any format to 16kHz mono WAV using ffmpeg.
+///
+/// Works with video files, multi-channel audio, and non-WAV formats.
+/// Requires ffmpeg to be installed and available on PATH.
+pub fn extract_audio(input_path: &Path, output_path: &Path) -> Result<()> {
+    let output = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            &input_path.display().to_string(),
+            "-vn",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            "-f",
+            "wav",
+            &output_path.display().to_string(),
+        ])
+        .output()
+        .with_context(|| "Failed to run ffmpeg. Is it installed?")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "ffmpeg failed extracting audio from {}: {}",
+            input_path.display(),
+            stderr.lines().last().unwrap_or("unknown error")
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
