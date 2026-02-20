@@ -1,6 +1,7 @@
 """Tests for stretch selection logic and config parsing."""
 
 import random
+import zipfile
 import pytest
 
 from glottisdale.collage.stretch import (
@@ -213,3 +214,78 @@ class TestApplyWordRepeat:
                                    count_range=(1, 1), style="exact", rng=rng)
         assert len(result) > 100
         assert len(result) < 200
+
+
+class TestZipDedup:
+    """Test that duplicate clip names in zip get _rep suffixes."""
+
+    def _make_clip_with_file(self, tmp_path, name):
+        """Create a clip with a real file on disk."""
+        path = tmp_path / f"{name}.wav"
+        path.write_bytes(b"RIFF" + name.encode())
+        syl = Syllable([Phoneme("AH0", 0.0, 0.1)], 0.0, 0.1, "test", 0)
+        return Clip(syllables=[syl], start=0.0, end=0.1,
+                    source="test", output_path=path)
+
+    def test_no_duplicates_no_suffix(self, tmp_path):
+        """Unique clip names should not get _rep suffix."""
+        clips = [self._make_clip_with_file(tmp_path, f"clip_{i}") for i in range(3)]
+        zip_path = tmp_path / "clips.zip"
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            seen: dict[str, int] = {}
+            for clip in clips:
+                name = clip.output_path.name
+                if name in seen:
+                    seen[name] += 1
+                    name = f"{clip.output_path.stem}_rep{seen[name]}{clip.output_path.suffix}"
+                else:
+                    seen[name] = 0
+                zf.write(clip.output_path, name)
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+        assert names == ["clip_0.wav", "clip_1.wav", "clip_2.wav"]
+
+    def test_duplicates_get_rep_suffix(self, tmp_path):
+        """Duplicate clip names should get _rep1, _rep2, etc."""
+        clip = self._make_clip_with_file(tmp_path, "word")
+        clips = [clip, clip, clip]  # same clip 3 times (repeat/stutter)
+        zip_path = tmp_path / "clips.zip"
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            seen: dict[str, int] = {}
+            for c in clips:
+                name = c.output_path.name
+                if name in seen:
+                    seen[name] += 1
+                    name = f"{c.output_path.stem}_rep{seen[name]}{c.output_path.suffix}"
+                else:
+                    seen[name] = 0
+                zf.write(c.output_path, name)
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+        assert names == ["word.wav", "word_rep1.wav", "word_rep2.wav"]
+
+    def test_mixed_unique_and_duplicate(self, tmp_path):
+        """Mix of unique and duplicate clips."""
+        a = self._make_clip_with_file(tmp_path, "a")
+        b = self._make_clip_with_file(tmp_path, "b")
+        clips = [a, b, a, b, a]
+        zip_path = tmp_path / "clips.zip"
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            seen: dict[str, int] = {}
+            for c in clips:
+                name = c.output_path.name
+                if name in seen:
+                    seen[name] += 1
+                    name = f"{c.output_path.stem}_rep{seen[name]}{c.output_path.suffix}"
+                else:
+                    seen[name] = 0
+                zf.write(c.output_path, name)
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+        assert names == ["a.wav", "b.wav", "a_rep1.wav", "b_rep1.wav", "a_rep2.wav"]

@@ -1,6 +1,9 @@
 """BFA (Bournemouth Forced Aligner) backend for phoneme-level alignment."""
 
+import contextlib
+import io
 import logging
+import os
 from pathlib import Path
 
 from glottisdale.collage.align import Aligner
@@ -24,10 +27,12 @@ class BFAAligner(Aligner):
         whisper_model: str = "base",
         language: str = "en",
         device: str = "cpu",
+        verbose: bool = False,
     ):
         self.whisper_model = whisper_model
         self.language = language
         self.device = device
+        self.verbose = verbose
         self._aligner = None
 
     def _get_aligner(self):
@@ -98,11 +103,19 @@ class BFAAligner(Aligner):
                 continue
 
             try:
-                bfa_result = aligner.process_sentence(
-                    text=chunk_text,
-                    audio_wav=chunk_audio,
-                    do_groups=True,
-                )
+                if self.verbose:
+                    bfa_result = aligner.process_sentence(
+                        text=chunk_text,
+                        audio_wav=chunk_audio,
+                        do_groups=True,
+                    )
+                else:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        bfa_result = aligner.process_sentence(
+                            text=chunk_text,
+                            audio_wav=chunk_audio,
+                            do_groups=True,
+                        )
             except Exception as e:
                 logger.warning(
                     f"BFA chunk failed ({len(chunk)} words, "

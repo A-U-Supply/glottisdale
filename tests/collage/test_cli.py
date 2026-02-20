@@ -28,6 +28,7 @@ def test_parse_collage_defaults():
     assert args.aligner == "auto"
     assert args.bfa_device == "cpu"
     assert args.seed is None
+    assert args.verbose is False
 
 
 def test_parse_collage_all_options():
@@ -257,6 +258,44 @@ def test_cli_passes_stretch_repeat_to_process(tmp_path):
         assert call_kwargs["stretch_factor"] == "1.5-3.0"
         assert call_kwargs["repeat_weight"] == 0.2
         assert call_kwargs["stutter"] == 0.4
+
+
+def test_verbose_flag_short():
+    args = parse_args(["collage", "-v"])
+    assert args.verbose is True
+
+
+def test_verbose_flag_long():
+    args = parse_args(["collage", "--verbose"])
+    assert args.verbose is True
+
+
+def test_cli_passes_verbose_to_process(tmp_path):
+    """CLI should pass verbose flag to process()."""
+    from glottisdale.cli import main
+
+    input_file = tmp_path / "test.wav"
+    input_file.touch()
+
+    mock_result = MagicMock()
+    mock_result.transcript = "test"
+    mock_result.clips = []
+    mock_result.concatenated = MagicMock()
+    mock_result.concatenated.name = "concatenated.wav"
+
+    with patch("glottisdale.collage.process") as mock_process:
+        mock_process.return_value = mock_result
+        main(["collage", str(input_file), "--output-dir", str(tmp_path / "out"), "-v"])
+
+        call_kwargs = mock_process.call_args[1]
+        assert call_kwargs["verbose"] is True
+
+    with patch("glottisdale.collage.process") as mock_process:
+        mock_process.return_value = mock_result
+        main(["collage", str(input_file), "--output-dir", str(tmp_path / "out")])
+
+        call_kwargs = mock_process.call_args[1]
+        assert call_kwargs["verbose"] is False
 
 
 def test_parse_sing_defaults():

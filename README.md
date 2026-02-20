@@ -80,6 +80,7 @@ Options:
   --seed N                 RNG seed for reproducibility
   --whisper-model MODEL    tiny/base/small/medium (default: base)
   --aligner MODE           auto/default/bfa (default: auto)
+  -v, --verbose            Show all dependency warnings (default: quiet)
 
 Prosodic grouping:
   --syllables-per-word N   Syllables per word: '3' or '1-4' (default: 1-4)

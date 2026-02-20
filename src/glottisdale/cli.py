@@ -3,6 +3,7 @@
 import argparse
 import logging
 import sys
+import warnings
 from pathlib import Path
 
 
@@ -21,6 +22,8 @@ def _add_shared_args(parser: argparse.ArgumentParser) -> None:
                         help="Whisper model size (default: base)")
     parser.add_argument("--seed", type=int, default=None,
                         help="RNG seed for reproducible output")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False,
+                        help="Show all warnings from dependencies (default: quiet)")
 
 
 def _add_collage_args(parser: argparse.ArgumentParser) -> None:
@@ -222,6 +225,7 @@ def _run_collage(args: argparse.Namespace) -> None:
         repeat_style=args.repeat_style,
         stutter=args.stutter,
         stutter_count=args.stutter_count,
+        verbose=args.verbose,
     )
 
     print(f"Processed {len(args.input_files)} source file(s)")
@@ -299,8 +303,19 @@ def _run_sing(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entrypoint."""
-    logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
     args = parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s: %(message)s")
+
+    if not args.verbose:
+        # Silence noisy third-party warnings
+        warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
+        warnings.filterwarnings("ignore", message=".*backend.*parameter.*TorchCodec")
+        warnings.filterwarnings("ignore", message="Duplicate name")
+        logging.getLogger("phonemizer").setLevel(logging.ERROR)
+        logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+        logging.getLogger("httpx").setLevel(logging.ERROR)
+        logging.getLogger("bournemouth_aligner").setLevel(logging.ERROR)
 
     if args.command == "collage":
         _run_collage(args)

@@ -240,6 +240,8 @@ def process(
     # Stutter params (all off by default)
     stutter: float | None = None,
     stutter_count: str = "1-2",
+    # Misc
+    verbose: bool = False,
 ) -> Result:
     """Run the full glottisdale collage pipeline."""
     rng = random.Random(seed)
@@ -260,7 +262,7 @@ def process(
     pps_min, pps_max = _parse_range(phrases_per_sentence)
     pp_min, pp_max = _parse_gap(phrase_pause)
     sp_min, sp_max = _parse_gap(sentence_pause)
-    alignment_engine = get_aligner(aligner, whisper_model=whisper_model, device=bfa_device)
+    alignment_engine = get_aligner(aligner, whisper_model=whisper_model, device=bfa_device, verbose=verbose)
 
     stretch_config = StretchConfig(
         random_stretch=random_stretch,
