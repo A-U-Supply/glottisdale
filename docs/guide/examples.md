@@ -4,6 +4,8 @@ CLI recipes for getting interesting results out of glottisdale, organized by wha
 
 All examples assume you have at least one audio or video file with speech in it. The file can be any format ffmpeg understands (mp4, wav, mp3, m4a, etc.).
 
+Every run creates a unique subdirectory inside `--output-dir` (default: `./glottisdale-output/`), so runs never overwrite each other. Use `--run-name` to label runs you want to find easily later.
+
 ---
 
 ## Basic variations
