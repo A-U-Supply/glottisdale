@@ -146,6 +146,40 @@ Play `full_mix.wav` to hear the vocal with its MIDI backing, or `acappella.wav` 
 
 ---
 
+## Your first speech reconstruction
+
+The `speak` command takes the same speech audio, but instead of shuffling syllables or mapping them to a melody, it reconstructs target text by finding the closest-matching syllables in your source audio. Each source syllable is compared phonetically to the target using articulatory feature distance, so "bat" might be reconstructed using a "ba" from one word and a "t" from another.
+
+### Text mode
+
+Provide the text you want the source voice to "say":
+
+```bash
+glottisdale speak your-video.mp4 --text "the quick brown fox"
+```
+
+### Reference mode
+
+Or provide a reference audio file -- glottisdale transcribes it for the target text and uses its timing as a template:
+
+```bash
+glottisdale speak your-video.mp4 --reference guide-audio.mp4
+```
+
+### What you get
+
+The output lands in a unique subdirectory inside `./glottisdale-output/`:
+
+| File | What it is |
+|------|-----------|
+| `speak.wav` | The reconstructed speech audio |
+| `match-log.json` | Which source syllable was matched to each target syllable, with phonetic distances |
+| `syllable-bank.json` | The full index of source syllables available for matching |
+
+The result sounds like the original speaker attempting to say the target text. Phonetically close matches sound natural; distant matches produce the characteristic glottisdale uncanniness.
+
+---
+
 ## What just happened?
 
 Here is what glottisdale did behind the scenes, in plain English.
