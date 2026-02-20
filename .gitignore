@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.pytest_cache/
+*.wav
+!tests/fixtures/*.wav
