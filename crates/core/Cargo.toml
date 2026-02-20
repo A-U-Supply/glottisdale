@@ -3,6 +3,10 @@ name = "glottisdale-core"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+whisper-native = ["whisper-rs"]
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
@@ -15,3 +19,4 @@ lazy_static.workspace = true
 hound = "3"
 rubato = "0.16"
 rodio = "0.20"
+whisper-rs = { version = "0.13", optional = true }
