@@ -15,6 +15,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -30,5 +33,11 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Check warnings
-        run: cargo build --all-targets 2>&1 | grep -c "warning" | xargs test 0 -eq
+      - name: Check for warnings
+        run: |
+          OUTPUT=$(cargo build --all-targets 2>&1)
+          if echo "$OUTPUT" | grep -q "^warning\["; then
+            echo "$OUTPUT"
+            echo "::error::Build produced warnings"
+            exit 1
+          fi
