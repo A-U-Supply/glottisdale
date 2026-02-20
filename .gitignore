@@ -12,3 +12,7 @@ build/
 !tests/fixtures/*.wav
 test-files/
 glottisdale-output/
+
+# Rust
+target/
+Cargo.lock

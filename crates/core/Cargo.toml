@@ -1,0 +1,15 @@
+[package]
+name = "glottisdale-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+rand.workspace = true
+sha2.workspace = true
+hound = "3"
+rubato = "0.16"
