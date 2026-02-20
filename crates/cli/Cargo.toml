@@ -1,0 +1,16 @@
+[package]
+name = "glottisdale"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "glottisdale"
+path = "src/main.rs"
+
+[dependencies]
+glottisdale-core.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+env_logger.workspace = true
+log.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }

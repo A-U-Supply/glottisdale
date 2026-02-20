@@ -7,18 +7,66 @@ Glottisdale takes speech audio, segments it into syllables, and reassembles them
 ## Quick Start
 
 ```bash
+# CLI
 glottisdale collage your-video.mp4
+
+# GUI
+glottisdale-gui
 ```
 
-Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-breathy-bassoon/` — `concatenated.wav` is the full collage, `clips.zip` has the individual pieces. Runs never overwrite each other. See the [Quick Start guide](docs/getting-started/quickstart.md) for more.
+Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-breathy-bassoon/` — `concatenated.wav` is the full collage, `clips.zip` has the individual pieces. Runs never overwrite each other.
 
 ## Install
+
+### From source (Rust)
+
+```bash
+# Requires Rust 1.75+ and ffmpeg
+git clone https://github.com/A-U-Supply/glottisdale.git
+cd glottisdale
+cargo build --release
+
+# CLI binary
+./target/release/glottisdale --help
+
+# GUI binary
+./target/release/glottisdale-gui
+```
+
+### Python (legacy)
 
 ```bash
 pip install git+https://github.com/A-U-Supply/glottisdale.git
 ```
 
-Requires Python 3.11+ and ffmpeg. Optional extras available for vocal MIDI mapping (`[sing]`) and improved syllable accuracy (`[bfa]`). See the [full install guide](docs/getting-started/install.md) for platform-specific instructions and optional dependencies.
+Requires Python 3.11+ and ffmpeg. Optional extras: `[sing]` for MIDI mapping, `[bfa]` for improved syllable accuracy.
+
+## Architecture
+
+Cargo workspace with three crates:
+
+- **`glottisdale-core`** — Library with all processing logic (audio I/O, language processing, pipelines)
+- **`glottisdale`** — CLI binary (clap)
+- **`glottisdale-gui`** — Native GUI binary (egui/eframe)
+
+### Core modules
+
+| Module | Description |
+|--------|-------------|
+| `audio::io` | WAV read/write, ffmpeg extraction, resampling |
+| `audio::analysis` | F0 estimation, RMS, room tone, breath detection, pink noise |
+| `audio::effects` | Pitch shift, time stretch, volume, crossfade, mixing |
+| `audio::playback` | Real-time audio playback via rodio |
+| `language::g2p` | Grapheme-to-phoneme via embedded CMU dict |
+| `language::syllabify` | ARPABET and IPA syllabifiers |
+| `language::phonotactics` | Sonority-based syllable ordering |
+| `language::transcribe` | Whisper ASR with word timestamps |
+| `language::align` | Alignment backends (default, BFA) |
+| `cache` | SHA-256 file hashing, atomic writes |
+| `names` | Thematic run name generator |
+| `collage` | Syllable sampling, stretch, stutter, prosodic grouping |
+| `speak` | Phonetic distance, syllable bank, Viterbi matching, assembly |
+| `sing` | MIDI parsing, vocal mapping, synthesis, mixing |
 
 ## CLI Reference
 
@@ -51,12 +99,12 @@ Prosodic grouping:
   --crossfade MS           Syllable crossfade (default: 30)
   --word-crossfade MS      Word crossfade (default: 50)
 
-Audio polish:
-  --pitch-normalize / --no-pitch-normalize    (default: on)
-  --volume-normalize / --no-volume-normalize  (default: on)
-  --room-tone / --no-room-tone                (default: on)
-  --breaths / --no-breaths                    (default: on)
-  --prosodic-dynamics / --no-prosodic-dynamics (default: on)
+Audio polish (all on by default, use --no-* to disable):
+  --no-pitch-normalize     Disable pitch normalization
+  --no-volume-normalize    Disable volume normalization
+  --no-room-tone           Disable room tone extraction
+  --no-breaths             Disable breath insertion
+  --no-prosodic-dynamics   Disable phrase-level dynamics
   --noise-level DB         Pink noise bed level (default: -40, 0=off)
   --breath-probability P   Breath insertion probability (default: 0.6)
   --pitch-range SEMI       Max pitch shift in semitones (default: 5)
@@ -100,8 +148,8 @@ Options:
   --whisper-model MODEL    tiny/base/small/medium (default: base)
   --drift-range SEMI       Max pitch drift from melody (default: 2.0)
   --no-cache               Disable file-based caching (re-run everything)
-  --vibrato / --no-vibrato (default: on)
-  --chorus / --no-chorus   (default: on)
+  --no-vibrato             Disable vibrato
+  --no-chorus              Disable chorus
 ```
 
 ### `glottisdale speak`
@@ -130,21 +178,21 @@ Options:
 
 Speak-specific:
   --match-unit UNIT        syllable or phoneme (default: syllable)
-  --pitch-correct / --no-pitch-correct    (default: on)
+  --no-pitch-correct       Disable pitch correction (on by default)
   --timing-strictness F    How closely to follow reference timing, 0.0-1.0 (default: 0.8)
   --crossfade MS           Crossfade between syllables in ms (default: 10)
-  --normalize-volume / --no-normalize-volume  (default: on)
+  --no-normalize-volume    Disable volume normalization (on by default)
 ```
 
-## Documentation
+### `glottisdale-gui`
 
-- [Installation](docs/getting-started/install.md) — Install glottisdale and its dependencies
-- [Quick Start](docs/getting-started/quickstart.md) — Make your first collage in 5 minutes
-- [Examples](docs/guide/examples.md) — CLI recipes for interesting and creative results
-- [Troubleshooting](docs/guide/troubleshooting.md) — Common issues and how to fix them
-- [Philosophy & Research](docs/reference/philosophy.md) — Why we built it this way
-- [Architecture](docs/reference/architecture.md) — Pipeline diagrams and module map
-- [Python API](docs/reference/python-api.md) — Using glottisdale as a library
+Native desktop GUI. Tab-based interface with file picker, settings panels, and log viewer for all three pipelines.
+
+## Dependencies
+
+- **Rust 1.75+** for building
+- **ffmpeg** for audio/video extraction
+- **Whisper** CLI or model files for transcription (optional: `whisper-rs` native feature)
 
 ## License
 

@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary_suffix: linux-amd64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            binary_suffix: darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libasound2-dev
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package CLI binary
+        run: |
+          mkdir -p dist
+          cp target/release/glottisdale dist/glottisdale-${{ matrix.binary_suffix }}
+          chmod +x dist/glottisdale-${{ matrix.binary_suffix }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glottisdale-${{ matrix.binary_suffix }}
+          path: dist/glottisdale-${{ matrix.binary_suffix }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/glottisdale-*
+          generate_release_notes: true
