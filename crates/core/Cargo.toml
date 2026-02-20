@@ -19,4 +19,5 @@ lazy_static.workspace = true
 hound = "3"
 rubato = "0.16"
 rodio = "0.20"
+midly = "0.5"
 whisper-rs = { version = "0.13", optional = true }
