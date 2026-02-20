@@ -80,6 +80,7 @@ Options:
   --seed N                 RNG seed for reproducibility
   --whisper-model MODEL    tiny/base/small/medium (default: base)
   --aligner MODE           auto/default/bfa (default: auto)
+  --no-cache               Disable file-based caching (re-run everything)
   -v, --verbose            Show all dependency warnings (default: quiet)
 
 Prosodic grouping:
@@ -138,6 +139,7 @@ Options:
   --seed N                 RNG seed for reproducibility
   --whisper-model MODEL    tiny/base/small/medium (default: base)
   --drift-range SEMI       Max pitch drift from melody (default: 2.0)
+  --no-cache               Disable file-based caching (re-run everything)
   --vibrato / --no-vibrato (default: on)
   --chorus / --no-chorus   (default: on)
 ```
@@ -189,6 +191,32 @@ glottisdale collage input.mp4 --aligner bfa
 ```
 
 The `--aligner auto` mode (default) tries BFA first and falls back to the default aligner if BFA is not installed.
+
+## Caching
+
+Glottisdale caches expensive intermediate results to speed up repeated runs on the same files. Caches are stored in `~/.cache/glottisdale/` with three tiers:
+
+| Tier | Directory | What's cached |
+|------|-----------|---------------|
+| Audio extraction | `extract/` | 16kHz mono WAV resampled from input |
+| Whisper transcription | `whisper/` | Word-level timestamps and transcript |
+| Alignment | `align/` | Syllable/phoneme-level timestamps |
+
+Cache keys are derived from the SHA-256 hash of the input file, plus the Whisper model and aligner settings. A second run on the same input files skips extraction (~seconds), transcription (~5-10 min), and alignment (~1-3 min).
+
+To bypass the cache and re-process everything:
+
+```bash
+glottisdale collage input.mp4 --no-cache
+```
+
+To clear the cache entirely:
+
+```bash
+rm -rf ~/.cache/glottisdale/
+```
+
+You can override the cache location with the `GLOTTISDALE_CACHE_DIR` environment variable.
 
 ## License
 

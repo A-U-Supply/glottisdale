@@ -15,9 +15,21 @@ logger = logging.getLogger(__name__)
 class Aligner(ABC):
     """Abstract base for speech alignment backends."""
 
+    name: str = "base"
+
     @abstractmethod
-    def process(self, audio_path: Path) -> dict:
+    def process(
+        self,
+        audio_path: Path,
+        audio_hash: str | None = None,
+        use_cache: bool = False,
+    ) -> dict:
         """Transcribe and align audio, returning syllable-level timestamps.
+
+        Args:
+            audio_path: Path to the audio file.
+            audio_hash: Pre-computed hash (enables caching).
+            use_cache: Whether to check/store caches.
 
         Returns:
             Dict with keys:
@@ -34,18 +46,47 @@ class DefaultAligner(Aligner):
     syllable timing estimated by proportional distribution.
     """
 
+    name = "default"
+
     def __init__(self, whisper_model: str = "base", language: str = "en", **kwargs):
         self.whisper_model = whisper_model
         self.language = language
 
-    def process(self, audio_path: Path) -> dict:
-        result = transcribe(audio_path, model_name=self.whisper_model, language=self.language)
+    def process(
+        self,
+        audio_path: Path,
+        audio_hash: str | None = None,
+        use_cache: bool = False,
+    ) -> dict:
+        if use_cache and audio_hash:
+            from glottisdale.cache import get_cached_alignment, store_alignment_cache
+            cached = get_cached_alignment(
+                self.name, audio_hash, self.whisper_model, self.language,
+            )
+            if cached is not None:
+                return cached
+
+        result = transcribe(
+            audio_path,
+            model_name=self.whisper_model,
+            language=self.language,
+            audio_hash=audio_hash,
+            use_cache=use_cache,
+        )
         syllables = syllabify_words(result["words"])
-        return {
+        output = {
             "text": result["text"],
             "words": result["words"],
             "syllables": syllables,
         }
+
+        if use_cache and audio_hash:
+            from glottisdale.cache import store_alignment_cache
+            store_alignment_cache(
+                self.name, audio_hash, self.whisper_model, self.language, output,
+            )
+
+        return output
 
 
 def _get_bfa_class():

@@ -22,6 +22,8 @@ class BFAAligner(Aligner):
     Syllabification uses the IPA sonority-based syllabifier.
     """
 
+    name = "bfa"
+
     def __init__(
         self,
         whisper_model: str = "base",
@@ -51,7 +53,12 @@ class BFAAligner(Aligner):
     MAX_CHUNK_DURATION = 8.0
     SAMPLE_RATE = 16000  # BFA resamples to 16kHz
 
-    def process(self, audio_path: Path) -> dict:
+    def process(
+        self,
+        audio_path: Path,
+        audio_hash: str | None = None,
+        use_cache: bool = False,
+    ) -> dict:
         """Transcribe and align audio using Whisper + BFA.
 
         Chunks the Whisper transcript into segments that fit within BFA's
@@ -63,9 +70,19 @@ class BFAAligner(Aligner):
                 words: List of word dicts with timestamps
                 syllables: List of Syllable objects with real BFA timestamps
         """
+        if use_cache and audio_hash:
+            from glottisdale.cache import get_cached_alignment
+            cached = get_cached_alignment(
+                self.name, audio_hash, self.whisper_model, self.language,
+                device=self.device,
+            )
+            if cached is not None:
+                return cached
+
         # Step 1: Whisper transcription for text + word boundaries
         whisper_result = transcribe(
-            audio_path, model_name=self.whisper_model, language=self.language
+            audio_path, model_name=self.whisper_model, language=self.language,
+            audio_hash=audio_hash, use_cache=use_cache,
         )
 
         words = whisper_result["words"]
@@ -201,11 +218,20 @@ class BFAAligner(Aligner):
             except Exception as e:
                 logger.debug(f"Syllabification failed for '{word_text}': {e}")
 
-        return {
+        output = {
             "text": whisper_result["text"],
             "words": words,
             "syllables": all_syllables,
         }
+
+        if use_cache and audio_hash:
+            from glottisdale.cache import store_alignment_cache
+            store_alignment_cache(
+                self.name, audio_hash, self.whisper_model, self.language,
+                output, device=self.device,
+            )
+
+        return output
 
     @classmethod
     def _chunk_words(cls, words: list[dict]) -> list[list[dict]]:

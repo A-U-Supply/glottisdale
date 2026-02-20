@@ -172,10 +172,58 @@ def _concatenate_simple(clip_paths: list[Path], output_path: Path) -> None:
     subprocess.run(cmd, capture_output=True, text=True, timeout=120).check_returncode()
 
 
+def _crossfade_chain(
+    clip_paths: list[Path], output_path: Path, crossfade_s: float
+) -> None:
+    """Build and run a single ffmpeg acrossfade filter chain.
+
+    Assumes all clips are validated (non-zero duration, crossfade is safe).
+    """
+    n = len(clip_paths)
+    inputs = []
+    for i, clip in enumerate(clip_paths):
+        inputs.extend(["-i", str(clip)])
+
+    filter_parts = []
+    current_label = "[0]"
+
+    for i in range(1, n):
+        next_label = f"[{i}]"
+        out_label = f"[a{i}]" if i < n - 1 else "[out]"
+        filter_parts.append(
+            f"{current_label}{next_label}acrossfade=d={crossfade_s}:c1=tri:c2=tri{out_label}"
+        )
+        current_label = out_label
+
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", ";".join(filter_parts),
+        "-map", "[out]",
+        "-c:a", "pcm_s16le",
+        str(output_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    result.check_returncode()
+
+    # ffmpeg can exit 0 but produce empty output when acrossfade filter
+    # drops all frames (short clips in a chain). Fall back to simple concat.
+    if output_path.stat().st_size <= 78:
+        _concatenate_simple(clip_paths, output_path)
+
+
+_CROSSFADE_BATCH_SIZE = 8
+
+
 def _concatenate_with_crossfade(
     clip_paths: list[Path], output_path: Path, crossfade_ms: float
 ) -> None:
-    """Concatenate with acrossfade filters between clips."""
+    """Concatenate with acrossfade filters between clips.
+
+    When there are more than _CROSSFADE_BATCH_SIZE inputs, crossfades in
+    batches to avoid ffmpeg filter-chain timeouts, then crossfades the
+    intermediate results.
+    """
+    import tempfile
+
     n = len(clip_paths)
 
     if n <= 1:
@@ -209,35 +257,28 @@ def _concatenate_with_crossfade(
         return
     crossfade_s = safe_crossfade_ms / 1000.0
 
-    # Build filter_complex chain
-    inputs = []
-    for i, clip in enumerate(clip_paths):
-        inputs.extend(["-i", str(clip)])
+    if n <= _CROSSFADE_BATCH_SIZE:
+        _crossfade_chain(clip_paths, output_path, crossfade_s)
+        return
 
-    filter_parts = []
-    current_label = "[0]"
+    # Batched path: split into groups, crossfade each, then crossfade results
+    with tempfile.TemporaryDirectory() as batchdir:
+        batchdir = Path(batchdir)
+        intermediates = []
 
-    for i in range(1, n):
-        next_label = f"[{i}]"
-        out_label = f"[a{i}]" if i < n - 1 else "[out]"
-        filter_parts.append(
-            f"{current_label}{next_label}acrossfade=d={crossfade_s}:c1=tri:c2=tri{out_label}"
-        )
-        current_label = out_label
+        for batch_idx in range(0, n, _CROSSFADE_BATCH_SIZE):
+            batch = clip_paths[batch_idx:batch_idx + _CROSSFADE_BATCH_SIZE]
+            if len(batch) == 1:
+                intermediates.append(batch[0])
+            else:
+                intermediate = batchdir / f"batch_{batch_idx:04d}.wav"
+                _crossfade_chain(batch, intermediate, crossfade_s)
+                intermediates.append(intermediate)
 
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
-        "-c:a", "pcm_s16le",
-        str(output_path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    result.check_returncode()
-
-    # ffmpeg can exit 0 but produce empty output when acrossfade filter
-    # drops all frames (short clips in a chain). Fall back to simple concat.
-    if output_path.stat().st_size <= 78:
-        _concatenate_simple(clip_paths, output_path)
+        if len(intermediates) == 1:
+            shutil.copy2(intermediates[0], output_path)
+        else:
+            _crossfade_chain(intermediates, output_path, crossfade_s)
 
 
 def pitch_shift_clip(input_path: Path, output_path: Path, semitones: float) -> Path:

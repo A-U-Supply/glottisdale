@@ -246,6 +246,43 @@ def test_time_stretch_identity(tmp_path):
     assert abs(stretched_dur - original_dur) < 0.05
 
 
+def test_concatenate_with_crossfade_batched(tmp_path):
+    """Crossfading 16+ clips should use batched path and not timeout."""
+    # Create 18 clips (above the batch threshold of 8)
+    clips = []
+    for i in range(18):
+        clip = tmp_path / f"clip_{i:02d}.wav"
+        start = (i % 4) * 0.4
+        cut_clip(FIXTURES / "test_tone.wav", clip, start, start + 0.5, padding_ms=0, fade_ms=0)
+        clips.append(clip)
+
+    out = tmp_path / "batched.wav"
+    concatenate_clips(clips, out, crossfade_ms=15)
+    assert out.exists()
+    assert out.stat().st_size > 78  # Not empty
+    duration = get_duration(out)
+    # acrossfade chains lose duration at each step; just verify output
+    # is non-trivial and the batched path doesn't timeout or error
+    assert duration > 0.5
+
+
+def test_concatenate_crossfade_exactly_at_batch_boundary(tmp_path):
+    """Exactly 8 clips should use the direct (non-batched) path."""
+    clips = []
+    for i in range(8):
+        clip = tmp_path / f"clip_{i:02d}.wav"
+        start = (i % 3) * 0.4
+        cut_clip(FIXTURES / "test_tone.wav", clip, start, start + 0.5, padding_ms=0, fade_ms=0)
+        clips.append(clip)
+
+    out = tmp_path / "exact8.wav"
+    concatenate_clips(clips, out, crossfade_ms=15)
+    assert out.exists()
+    assert out.stat().st_size > 78
+    duration = get_duration(out)
+    assert duration > 0.5
+
+
 def test_time_stretch_no_rubberband_fallback(tmp_path, monkeypatch):
     """If rubberband not available, should copy the file and log warning."""
     clip = tmp_path / "clip.wav"
