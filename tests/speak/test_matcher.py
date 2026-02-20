@@ -64,6 +64,59 @@ class TestMatchSyllables:
         assert len(results) == 1
         assert results[0].distance > 0
 
+    def test_continuity_preferred(self):
+        """Adjacent source syllables are preferred for consecutive targets."""
+        bank = [
+            _entry(["B", "AH1"], index=0, start=0.0, end=0.3),
+            _entry(["K", "AE1"], index=1, start=0.3, end=0.6),  # adjacent to 0
+            _entry(["K", "AE1"], index=2, start=2.0, end=2.3),  # isolated
+        ]
+        target = [["B", "AH1"], ["K", "AE1"]]
+        results = match_syllables(target, bank)
+        # Both index=1 and index=2 are exact matches for target[1],
+        # but index=1 is adjacent to index=0 → preferred
+        assert results[0].entry.index == 0
+        assert results[1].entry.index == 1
+
+    def test_continuity_over_slightly_worse_match(self):
+        """Contiguous source wins over better but isolated match."""
+        bank = [
+            _entry(["B", "AH1"], index=0, start=0.0, end=0.3),
+            _entry(["P", "AH1"], index=1, start=0.3, end=0.6),  # adjacent, dist=1
+            _entry(["B", "AH1"], index=2, start=2.0, end=2.3),  # isolated, dist=0
+        ]
+        target = [["B", "AH1"], ["B", "AH1"]]
+        results = match_syllables(target, bank)
+        # Contiguous path: 0 + 1 - 3 = -2  vs  non-contiguous: 0 + 0 = 0
+        assert results[0].entry.index == 0
+        assert results[1].entry.index == 1  # contiguous wins despite distance=1
+
+    def test_continuity_wins_over_cross_type(self):
+        """With default bonus, even a cross-type contiguous match is preferred
+        over breaking continuity — natural flow beats phonetic accuracy."""
+        bank = [
+            _entry(["B", "AH1"], index=0, start=0.0, end=0.3),
+            _entry(["SH", "IY1"], index=1, start=0.3, end=0.6),  # adjacent, poor
+            _entry(["B", "AH1"], index=2, start=2.0, end=2.3),   # isolated, exact
+        ]
+        target = [["B", "AH1"], ["B", "AH1"]]
+        results = match_syllables(target, bank)
+        # Contiguous path (0→1) wins: cost = 0 + 6 - 7 = -1 < 0 + 0 = 0
+        assert results[0].entry.index == 0
+        assert results[1].entry.index == 1
+
+    def test_low_bonus_allows_better_match(self):
+        """With a low bonus, phonetic accuracy wins over continuity."""
+        bank = [
+            _entry(["B", "AH1"], index=0, start=0.0, end=0.3),
+            _entry(["SH", "IY1"], index=1, start=0.3, end=0.6),  # adjacent, bad
+            _entry(["B", "AH1"], index=2, start=2.0, end=2.3),   # isolated, exact
+        ]
+        target = [["B", "AH1"], ["B", "AH1"]]
+        results = match_syllables(target, bank, continuity_bonus=2)
+        # With low bonus: 0 + 6 - 2 = 4 > 0 + 0 = 0 → isolated wins
+        assert results[1].entry.index != 1
+
 
 class TestMatchPhonemes:
     def test_exact_phoneme_match(self):
