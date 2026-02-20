@@ -1,12 +1,19 @@
 """Tests for audio assembly from matched syllables."""
 
+import math
+import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+import numpy as np
+import pytest
 
 from glottisdale.speak.assembler import (
     plan_timing,
     assemble,
     _group_contiguous_runs,
+    _normalize_volume,
+    _normalize_pitch,
     TimingPlan,
 )
 from glottisdale.speak.matcher import MatchResult
@@ -68,6 +75,104 @@ class TestPlanTiming:
         assert abs(plan[0].target_duration - 0.3) < 0.01
 
 
+def _write_wav(path: Path, samples: np.ndarray, sr: int = 16000) -> Path:
+    """Write a simple 16-bit WAV for testing."""
+    import scipy.io.wavfile as wavfile
+    clipped = np.clip(samples, -1.0, 1.0)
+    int16 = (clipped * 32767).astype(np.int16)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wavfile.write(str(path), sr, int16)
+    return path
+
+
+class TestNormalizeVolume:
+    def test_equalizes_rms(self, tmp_path):
+        """Clips with different volumes should be brought closer together."""
+        clips_dir = tmp_path / "clips"
+        clips_dir.mkdir()
+
+        # Create clips with different volumes
+        sr = 16000
+        t = np.linspace(0, 0.1, int(sr * 0.1))
+        loud = np.sin(2 * np.pi * 440 * t) * 0.9
+        quiet = np.sin(2 * np.pi * 440 * t) * 0.1
+
+        loud_path = _write_wav(clips_dir / "loud.wav", loud, sr)
+        quiet_path = _write_wav(clips_dir / "quiet.wav", quiet, sr)
+
+        from glottisdale.analysis import read_wav, compute_rms
+        rms_before_loud = compute_rms(read_wav(loud_path)[0])
+        rms_before_quiet = compute_rms(read_wav(quiet_path)[0])
+        ratio_before = rms_before_loud / rms_before_quiet
+
+        _normalize_volume([loud_path, quiet_path], clips_dir)
+
+        rms_after_loud = compute_rms(read_wav(loud_path)[0])
+        rms_after_quiet = compute_rms(read_wav(quiet_path)[0])
+        ratio_after = rms_after_loud / rms_after_quiet
+
+        # Volume ratio should be much closer to 1.0 after normalization
+        assert ratio_after < ratio_before
+
+    def test_skips_silent_clips(self, tmp_path):
+        """Silent clips should not cause errors."""
+        clips_dir = tmp_path / "clips"
+        clips_dir.mkdir()
+
+        sr = 16000
+        silence = np.zeros(int(sr * 0.1))
+        tone = np.sin(2 * np.pi * 440 * np.linspace(0, 0.1, int(sr * 0.1))) * 0.5
+
+        silent_path = _write_wav(clips_dir / "silent.wav", silence, sr)
+        tone_path = _write_wav(clips_dir / "tone.wav", tone, sr)
+
+        # Should not raise
+        _normalize_volume([silent_path, tone_path], clips_dir)
+
+
+class TestNormalizePitch:
+    def test_shifts_outlier_toward_median(self, tmp_path):
+        """A clip with very different pitch should be shifted toward the median."""
+        clips_dir = tmp_path / "clips"
+        clips_dir.mkdir()
+
+        sr = 16000
+        duration = 0.1
+        t = np.linspace(0, duration, int(sr * duration))
+
+        # Three clips at ~200Hz, one at ~400Hz (outlier)
+        paths = []
+        for i, freq in enumerate([200, 200, 200, 400]):
+            samples = np.sin(2 * np.pi * freq * t) * 0.5
+            path = _write_wav(clips_dir / f"clip_{i}.wav", samples, sr)
+            paths.append(path)
+
+        _normalize_pitch(paths, clips_dir)
+
+        # The outlier clip should have been modified (pitch shifted)
+        from glottisdale.analysis import read_wav, estimate_f0
+        samples_after, sr_after = read_wav(paths[3])
+        f0_after = estimate_f0(samples_after, sr_after)
+        # It should be closer to 200 than to 400 now
+        if f0_after is not None:
+            assert f0_after < 350  # shifted toward median of 200
+
+    def test_skips_unvoiced(self, tmp_path):
+        """Clips with no detectable F0 should not cause errors."""
+        clips_dir = tmp_path / "clips"
+        clips_dir.mkdir()
+
+        sr = 16000
+        noise = np.random.RandomState(42).randn(int(sr * 0.1)) * 0.1
+        tone = np.sin(2 * np.pi * 200 * np.linspace(0, 0.1, int(sr * 0.1))) * 0.5
+
+        noise_path = _write_wav(clips_dir / "noise.wav", noise, sr)
+        tone_path = _write_wav(clips_dir / "tone.wav", tone, sr)
+
+        # Should not raise
+        _normalize_pitch([noise_path, tone_path], clips_dir)
+
+
 class TestAssemble:
     @patch("glottisdale.speak.assembler.cut_clip")
     @patch("glottisdale.speak.assembler.concatenate_clips")
@@ -84,11 +189,36 @@ class TestAssemble:
             matches=matches,
             timing=timing,
             output_dir=tmp_path,
-            crossfade_ms=10,
+            crossfade_ms=40,
+            normalize_volume=False,
+            normalize_pitch=False,
         )
         assert mock_cut.called
         assert mock_concat.called
         assert result == tmp_path / "speak.wav"
+
+    @patch("glottisdale.speak.assembler.cut_clip")
+    @patch("glottisdale.speak.assembler.concatenate_clips")
+    def test_assemble_default_crossfade_is_40(self, mock_concat, mock_cut, tmp_path):
+        """Default crossfade should be 40ms."""
+        entry = _entry(["B", "AH1"], start=0.0, end=0.3)
+        matches = [_match(["B", "AH1"], entry)]
+        timing = [TimingPlan(target_start=0.0, target_duration=0.3, stretch_factor=1.0)]
+
+        mock_cut.return_value = tmp_path / "clip_0.wav"
+        mock_concat.return_value = tmp_path / "speak.wav"
+
+        assemble(
+            matches=matches,
+            timing=timing,
+            output_dir=tmp_path,
+            normalize_volume=False,
+            normalize_pitch=False,
+        )
+        # Check that concatenate_clips was called with crossfade_ms=40
+        call_kwargs = mock_concat.call_args
+        assert call_kwargs[1].get("crossfade_ms", call_kwargs[0][0] if len(call_kwargs[0]) > 0 else None) == 40 or \
+               mock_concat.call_args.kwargs.get("crossfade_ms") == 40
 
 
 class TestGroupContiguousRuns:
