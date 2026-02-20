@@ -134,6 +134,45 @@ def _add_sing_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_speak_args(parser: argparse.ArgumentParser) -> None:
+    """Add arguments specific to the speak subcommand."""
+    parser.add_argument(
+        "--text", type=str, default=None,
+        help="Target text to reconstruct using source syllables",
+    )
+    parser.add_argument(
+        "--reference", type=Path, default=None,
+        help="Reference audio -- transcribed for target text + timing template",
+    )
+    parser.add_argument(
+        "--match-unit", default="syllable",
+        choices=["syllable", "phoneme"],
+        help="Matching granularity (default: syllable)",
+    )
+    parser.add_argument(
+        "--pitch-correct", "--no-pitch-correct",
+        action=argparse.BooleanOptionalAction, default=True,
+        help="Adjust pitch to target intonation (default: enabled)",
+    )
+    parser.add_argument(
+        "--timing-strictness", type=float, default=0.8,
+        help="How closely to follow reference timing, 0.0-1.0 (default: 0.8)",
+    )
+    parser.add_argument(
+        "--crossfade", type=float, default=10,
+        help="Crossfade between syllables in ms (default: 10)",
+    )
+    parser.add_argument(
+        "--normalize-volume", action=argparse.BooleanOptionalAction, default=True,
+        help="Normalize volume across syllables (default: enabled)",
+    )
+    parser.add_argument(
+        "--aligner", default="auto",
+        choices=["auto", "default", "bfa"],
+        help="Alignment backend (default: auto)",
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments with subcommands."""
     parser = argparse.ArgumentParser(
@@ -160,6 +199,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     _add_shared_args(sing_parser)
     _add_sing_args(sing_parser)
+
+    # Speak subcommand
+    speak_parser = subparsers.add_parser(
+        "speak",
+        help="Reconstruct text using source audio syllables",
+        description="Reconstruct target text using syllable fragments from source audio",
+    )
+    _add_shared_args(speak_parser)
+    _add_speak_args(speak_parser)
 
     args = parser.parse_args(argv)
 
@@ -320,6 +368,51 @@ def _run_sing(args: argparse.Namespace) -> None:
     logger.info(f"A cappella: {acappella_out}")
 
 
+def _run_speak(args: argparse.Namespace) -> None:
+    """Run the speak pipeline."""
+    from glottisdale.speak import process
+
+    input_paths = [Path(f) for f in args.input_files]
+    for p in input_paths:
+        if not p.exists():
+            print(f"Error: file not found: {p}", file=sys.stderr)
+            sys.exit(1)
+
+    if not input_paths:
+        print("Error: at least one input file is required", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.text and not args.reference:
+        print("Error: either --text or --reference is required", file=sys.stderr)
+        sys.exit(1)
+
+    from glottisdale.names import create_run_dir
+
+    output_root = Path(args.output_dir)
+    run_dir = create_run_dir(output_root, seed=args.seed, run_name=args.run_name)
+    print(f"Run: {run_dir.name}")
+
+    result = process(
+        input_paths=input_paths,
+        output_dir=run_dir,
+        text=args.text,
+        reference=args.reference,
+        match_unit=args.match_unit,
+        pitch_correct=args.pitch_correct,
+        timing_strictness=args.timing_strictness,
+        crossfade_ms=args.crossfade,
+        normalize_volume=args.normalize_volume,
+        whisper_model=args.whisper_model,
+        aligner=args.aligner,
+        seed=args.seed,
+        verbose=args.verbose,
+        use_cache=not args.no_cache,
+    )
+
+    print(f"Target text: {result.transcript}")
+    print(f"Output: {result.concatenated.name}")
+
+
 def main(argv: list[str] | None = None) -> None:
     """CLI entrypoint."""
     args = parse_args(argv)
@@ -342,6 +435,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_collage(args)
     elif args.command == "sing":
         _run_sing(args)
+    elif args.command == "speak":
+        _run_speak(args)
 
 
 if __name__ == "__main__":
