@@ -2,65 +2,23 @@
 
 Syllable-level audio collage and vocal MIDI mapping tool.
 
-Glottisdale takes speech audio, segments it into syllables, and reassembles them into surreal audio collages. It can also map syllable clips onto MIDI melodies to produce "drunk choir" vocal tracks.
-
-## Installation
-
-### System dependencies
-
-- **ffmpeg** — required for all audio processing
-- **espeak-ng** — required for BFA alignment (optional)
-- **rubberband** — required for pitch/time stretch in `sing` mode (optional)
-
-### Install from GitHub
-
-```bash
-# Core (collage only)
-pip install git+https://github.com/A-U-Supply/glottisdale.git
-
-# With vocal MIDI mapping
-pip install "glottisdale[sing] @ git+https://github.com/A-U-Supply/glottisdale.git"
-
-# Everything
-pip install "glottisdale[all] @ git+https://github.com/A-U-Supply/glottisdale.git"
-```
-
-### Development
-
-```bash
-git clone https://github.com/A-U-Supply/glottisdale.git
-cd glottisdale
-pip install -e '.[all,dev]'
-python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng')"
-```
+Glottisdale takes speech audio, segments it into syllables, and reassembles them into surreal audio collages. It can also map syllable clips onto MIDI melodies to produce "drunk choir" vocal tracks. Feed it any video or audio with speech and get back something that sounds like language but isn't.
 
 ## Quick Start
 
-### Syllable collage
+```bash
+glottisdale collage your-video.mp4
+```
+
+Output lands in `./glottisdale-output/` — `concatenated.wav` is the full collage, `clips.zip` has the individual pieces. See the [Quick Start guide](docs/getting-started/quickstart.md) for more.
+
+## Install
 
 ```bash
-glottisdale collage input.mp4 -o output/ --target-duration 30
+pip install git+https://github.com/A-U-Supply/glottisdale.git
 ```
 
-### Vocal MIDI mapping
-
-```bash
-glottisdale sing --midi midi-dir/ input.mp4 -o output/
-```
-
-### Python API
-
-```python
-from glottisdale.collage import process
-
-result = process(
-    input_paths=[Path("speech.wav")],
-    target_duration=20,
-    seed=42,
-)
-# result.concatenated -> Path to output WAV
-# result.clips -> list of Clip objects
-```
+Requires Python 3.11+ and ffmpeg. Optional extras available for vocal MIDI mapping (`[sing]`) and improved syllable accuracy (`[bfa]`). See the [full install guide](docs/getting-started/install.md) for platform-specific instructions and optional dependencies.
 
 ## CLI Reference
 
@@ -144,79 +102,15 @@ Options:
   --chorus / --no-chorus   (default: on)
 ```
 
-## Pipeline Architecture
+## Documentation
 
-### Collage pipeline
-
-1. Extract audio (ffmpeg → 16kHz mono WAV)
-2. Transcribe (Whisper ASR → word timestamps)
-3. Phoneme conversion (g2p_en → ARPABET)
-4. Syllabification (Maximum Onset Principle)
-5. Sample syllables to target duration
-6. Group into words → phrases → sentences
-7. Cut syllable clips with padding
-8. Pitch normalization (autocorrelation F0 → median → ffmpeg asetrate)
-9. Volume normalization (RMS → median)
-10. Stutter, syllable stretch, word assembly
-11. Word stretch, word repeat
-12. Phrase assembly with crossfade
-13. Prosodic dynamics (onset boost, final softening)
-14. Gap generation (room tone or silence + breaths)
-15. Final concatenation
-16. Global speed adjustment
-17. Pink noise bed mixing
-
-### Sing pipeline
-
-1. Parse MIDI melody (pretty_midi → Note/MidiTrack)
-2. Transcribe + syllabify audio sources (reuses collage modules)
-3. Normalize syllable pitch to median F0 (rubberband)
-4. Normalize syllable volume to median RMS
-5. Plan note mapping (syllable assignment, drift, vibrato/chorus decisions)
-6. Render each note (rubberband pitch shift + time stretch)
-7. Apply vibrato and chorus effects
-8. Assemble vocal timeline with gaps
-9. Synthesize MIDI backing (sine waves)
-10. Mix vocal + backing
-
-## BFA Aligner
-
-The [Bournemouth Forced Aligner](https://pypi.org/project/bournemouth-forced-aligner/) provides real phoneme-level timestamps from the audio signal, producing more precise syllable boundaries than the default proportional approach.
-
-```bash
-pip install "glottisdale[bfa]"
-sudo apt-get install espeak-ng  # or: brew install espeak-ng
-
-glottisdale collage input.mp4 --aligner bfa
-```
-
-The `--aligner auto` mode (default) tries BFA first and falls back to the default aligner if BFA is not installed.
-
-## Caching
-
-Glottisdale caches expensive intermediate results to speed up repeated runs on the same files. Caches are stored in `~/.cache/glottisdale/` with three tiers:
-
-| Tier | Directory | What's cached |
-|------|-----------|---------------|
-| Audio extraction | `extract/` | 16kHz mono WAV resampled from input |
-| Whisper transcription | `whisper/` | Word-level timestamps and transcript |
-| Alignment | `align/` | Syllable/phoneme-level timestamps |
-
-Cache keys are derived from the SHA-256 hash of the input file, plus the Whisper model and aligner settings. A second run on the same input files skips extraction (~seconds), transcription (~5-10 min), and alignment (~1-3 min).
-
-To bypass the cache and re-process everything:
-
-```bash
-glottisdale collage input.mp4 --no-cache
-```
-
-To clear the cache entirely:
-
-```bash
-rm -rf ~/.cache/glottisdale/
-```
-
-You can override the cache location with the `GLOTTISDALE_CACHE_DIR` environment variable.
+- [Installation](docs/getting-started/install.md) — Install glottisdale and its dependencies
+- [Quick Start](docs/getting-started/quickstart.md) — Make your first collage in 5 minutes
+- [Examples](docs/guide/examples.md) — CLI recipes for interesting and creative results
+- [Troubleshooting](docs/guide/troubleshooting.md) — Common issues and how to fix them
+- [Philosophy & Research](docs/reference/philosophy.md) — Why we built it this way
+- [Architecture](docs/reference/architecture.md) — Pipeline diagrams and module map
+- [Python API](docs/reference/python-api.md) — Using glottisdale as a library
 
 ## License
 
