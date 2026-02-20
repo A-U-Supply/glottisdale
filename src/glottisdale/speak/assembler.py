@@ -75,6 +75,33 @@ def plan_timing(
     return plans
 
 
+def _group_contiguous_runs(
+    matches: list[MatchResult],
+    timing: list[TimingPlan],
+) -> list[list[int]]:
+    """Group consecutive matches that come from adjacent source syllables.
+
+    Returns a list of runs, where each run is a list of indices into
+    *matches* / *timing*.  Adjacent means same source file and the next
+    syllable index in that file.
+    """
+    if not matches:
+        return []
+
+    runs: list[list[int]] = [[0]]
+
+    for i in range(1, len(matches)):
+        prev = matches[runs[-1][-1]].entry
+        curr = matches[i].entry
+        if (curr.source_path == prev.source_path
+                and curr.index == prev.index + 1):
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+
+    return runs
+
+
 def assemble(
     matches: list[MatchResult],
     timing: list[TimingPlan],
@@ -83,6 +110,9 @@ def assemble(
     pitch_shifts: list[float] | None = None,
 ) -> Path:
     """Cut, stretch, and concatenate matched syllables into output audio.
+
+    Consecutive matches from adjacent positions in the same source file
+    are cut as a single clip to preserve natural coarticulation.
 
     Args:
         matches: Matched syllables in target order.
@@ -97,39 +127,56 @@ def assemble(
     clips_dir = output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
 
+    runs = _group_contiguous_runs(matches, timing)
+
     clip_paths: list[Path] = []
     gap_durations: list[float] = []
 
-    for i, (match, plan) in enumerate(zip(matches, timing)):
-        # Cut source syllable
-        clip_path = clips_dir / f"clip_{i:04d}.wav"
+    for run_idx, run in enumerate(runs):
+        first = run[0]
+        last = run[-1]
+
+        # Cut the entire contiguous span as one clip
+        clip_path = clips_dir / f"clip_{first:04d}.wav"
         cut_clip(
-            input_path=Path(match.entry.source_path),
+            input_path=Path(matches[first].entry.source_path),
             output_path=clip_path,
-            start=match.entry.start,
-            end=match.entry.end,
+            start=matches[first].entry.start,
+            end=matches[last].entry.end,
             padding_ms=5,
             fade_ms=3,
         )
 
-        # Time-stretch if needed
-        if abs(plan.stretch_factor - 1.0) > 0.05:
-            stretched = clips_dir / f"clip_{i:04d}_stretched.wav"
-            time_stretch_clip(clip_path, stretched, plan.stretch_factor)
+        # Time-stretch: compare total source duration to total target duration
+        source_dur = matches[last].entry.end - matches[first].entry.start
+        target_dur = sum(timing[i].target_duration for i in run)
+        stretch = target_dur / source_dur if source_dur > 0 else 1.0
+
+        if abs(stretch - 1.0) > 0.05:
+            stretched = clips_dir / f"clip_{first:04d}_stretched.wav"
+            time_stretch_clip(clip_path, stretched, stretch)
             clip_path = stretched
 
-        # Pitch-shift if requested
-        if pitch_shifts and i < len(pitch_shifts) and abs(pitch_shifts[i]) > 0.1:
-            shifted = clips_dir / f"clip_{i:04d}_pitched.wav"
-            pitch_shift_clip(clip_path, shifted, pitch_shifts[i])
-            clip_path = shifted
+        # Pitch-shift (use average of per-syllable shifts for the run)
+        if pitch_shifts:
+            run_shifts = [
+                pitch_shifts[i] for i in run
+                if i < len(pitch_shifts) and abs(pitch_shifts[i]) > 0.1
+            ]
+            if run_shifts:
+                avg_shift = sum(run_shifts) / len(run_shifts)
+                shifted = clips_dir / f"clip_{first:04d}_pitched.wav"
+                pitch_shift_clip(clip_path, shifted, avg_shift)
+                clip_path = shifted
 
         clip_paths.append(clip_path)
 
-        # Compute gap to next syllable
-        if i < len(timing) - 1:
-            gap = timing[i + 1].target_start - (plan.target_start + plan.target_duration)
-            gap_durations.append(max(0.0, gap) * 1000)  # convert to ms
+        # Gap to next run
+        if run_idx < len(runs) - 1:
+            this_end = timing[last].target_start + timing[last].target_duration
+            next_start = timing[runs[run_idx + 1][0]].target_start
+            gap = max(0.0, next_start - this_end) * 1000  # ms
+            gap_durations.append(gap)
 
     # Concatenate all clips
     output_path = output_dir / "speak.wav"

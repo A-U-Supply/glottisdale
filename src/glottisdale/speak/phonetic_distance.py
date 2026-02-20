@@ -1,5 +1,112 @@
 """ARPABET phonetic feature matrix and distance calculations."""
 
+# IPA-to-ARPABET mapping for phonemes produced by BFA aligner.
+# Diphthongs first (multi-char), then monophthongs, then consonants.
+IPA_TO_ARPABET: dict[str, str] = {
+    # Diphthongs (must be checked before single-char vowels)
+    "aɪ": "AY",
+    "aʊ": "AW",
+    "eɪ": "EY",
+    "oʊ": "OW",
+    "ɔɪ": "OY",
+    # Vowels
+    "i":  "IY",
+    "ɪ":  "IH",
+    "e":  "EY",
+    "ɛ":  "EH",
+    "æ":  "AE",
+    "ɑ":  "AA",
+    "ɒ":  "AA",
+    "ɔ":  "AO",
+    "o":  "OW",
+    "ʊ":  "UH",
+    "u":  "UW",
+    "ə":  "AH",
+    "ɜ":  "ER",
+    "ɐ":  "AH",
+    "ʌ":  "AH",
+    "a":  "AA",
+    # Consonants — stops
+    "p":  "P",
+    "b":  "B",
+    "t":  "T",
+    "d":  "D",
+    "k":  "K",
+    "g":  "G",
+    # Consonants — nasals
+    "m":  "M",
+    "n":  "N",
+    "ŋ":  "NG",
+    "ɲ":  "N",
+    "ɴ":  "NG",
+    # Consonants — fricatives
+    "f":  "F",
+    "v":  "V",
+    "θ":  "TH",
+    "ð":  "DH",
+    "s":  "S",
+    "z":  "Z",
+    "ʃ":  "SH",
+    "ʒ":  "ZH",
+    "h":  "HH",
+    "ɦ":  "HH",
+    "ç":  "HH",
+    "x":  "HH",
+    "ɣ":  "G",
+    # Consonants — liquids/rhotics
+    "l":  "L",
+    "ɫ":  "L",
+    "ɬ":  "L",
+    "ɮ":  "L",
+    "r":  "R",
+    "ɹ":  "R",
+    "ɾ":  "R",
+    "ɽ":  "R",
+    "ʁ":  "R",
+    "ʀ":  "R",
+    # Consonants — glides
+    "j":  "Y",
+    "w":  "W",
+    "ɥ":  "W",
+}
+
+# Ordered list of multi-char IPA keys for prefix matching
+_IPA_DIPHTHONGS = sorted(
+    [k for k in IPA_TO_ARPABET if len(k) > 1],
+    key=len, reverse=True,
+)
+
+
+def normalize_phoneme(phoneme: str) -> str:
+    """Convert an IPA phoneme to ARPABET if possible, passthrough otherwise.
+
+    Strips length markers (ː, ˑ) before lookup. Checks multi-character
+    diphthongs first, then single characters.
+    """
+    if not phoneme:
+        return phoneme
+
+    # Already ARPABET (uppercase letters, possibly with stress digit)
+    base = phoneme.rstrip("012")
+    if base and base.isascii() and base.isupper():
+        return phoneme
+
+    # Strip IPA length markers
+    cleaned = phoneme.rstrip("ːˑ")
+
+    # Try multi-char diphthongs first
+    for diph in _IPA_DIPHTHONGS:
+        if cleaned.startswith(diph):
+            return IPA_TO_ARPABET[diph]
+
+    # Try single-char lookup
+    if cleaned in IPA_TO_ARPABET:
+        return IPA_TO_ARPABET[cleaned]
+
+    # Unknown — return as-is
+    return phoneme
+
+
 # Articulatory features for each ARPABET phoneme (stress-stripped).
 # Consonants: (type, manner, place, voicing)
 # Vowels: (type, height, backness, roundness, tenseness)

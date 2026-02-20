@@ -1,6 +1,7 @@
 """Tests for ARPABET phonetic distance."""
 
 from glottisdale.speak.phonetic_distance import (
+    normalize_phoneme,
     phoneme_distance,
     syllable_distance,
     strip_stress,
@@ -69,6 +70,65 @@ class TestPhonemeDistance:
         ]
         for p in consonants + vowels:
             assert p in FEATURES, f"Missing features for {p}"
+
+
+class TestNormalizePhoneme:
+    def test_ipa_consonants(self):
+        assert normalize_phoneme("b") == "B"
+        assert normalize_phoneme("p") == "P"
+        assert normalize_phoneme("t") == "T"
+        assert normalize_phoneme("d") == "D"
+        assert normalize_phoneme("k") == "K"
+        assert normalize_phoneme("g") == "G"
+        assert normalize_phoneme("ʃ") == "SH"
+        assert normalize_phoneme("ʒ") == "ZH"
+        assert normalize_phoneme("θ") == "TH"
+        assert normalize_phoneme("ð") == "DH"
+        assert normalize_phoneme("ŋ") == "NG"
+
+    def test_ipa_vowels(self):
+        assert normalize_phoneme("ɪ") == "IH"
+        assert normalize_phoneme("ɛ") == "EH"
+        assert normalize_phoneme("æ") == "AE"
+        assert normalize_phoneme("ɑ") == "AA"
+        assert normalize_phoneme("ɔ") == "AO"
+        assert normalize_phoneme("ə") == "AH"
+        assert normalize_phoneme("ʊ") == "UH"
+        assert normalize_phoneme("ɜ") == "ER"
+
+    def test_ipa_diphthongs(self):
+        assert normalize_phoneme("aɪ") == "AY"
+        assert normalize_phoneme("aʊ") == "AW"
+        assert normalize_phoneme("eɪ") == "EY"
+        assert normalize_phoneme("oʊ") == "OW"
+        assert normalize_phoneme("ɔɪ") == "OY"
+
+    def test_ipa_rhotics_and_liquids(self):
+        assert normalize_phoneme("ɹ") == "R"
+        assert normalize_phoneme("ɾ") == "R"
+        assert normalize_phoneme("r") == "R"
+        assert normalize_phoneme("l") == "L"
+        assert normalize_phoneme("ɫ") == "L"
+
+    def test_ipa_glides(self):
+        assert normalize_phoneme("j") == "Y"
+        assert normalize_phoneme("w") == "W"
+
+    def test_arpabet_passthrough(self):
+        assert normalize_phoneme("B") == "B"
+        assert normalize_phoneme("AH") == "AH"
+        assert normalize_phoneme("AH1") == "AH1"
+        assert normalize_phoneme("IY0") == "IY0"
+        assert normalize_phoneme("SH") == "SH"
+        assert normalize_phoneme("NG") == "NG"
+
+    def test_unknown_passthrough(self):
+        assert normalize_phoneme("ʔ") == "ʔ"
+        assert normalize_phoneme("") == ""
+
+    def test_length_markers_stripped(self):
+        assert normalize_phoneme("iː") == "IY"
+        assert normalize_phoneme("uː") == "UW"
 
 
 class TestSyllableDistance:

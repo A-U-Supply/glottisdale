@@ -1,6 +1,7 @@
 """Build an indexed bank of source syllables for matching."""
 
 from dataclasses import dataclass
+from glottisdale.speak.phonetic_distance import normalize_phoneme
 from glottisdale.types import Syllable
 
 
@@ -45,7 +46,7 @@ def build_bank(syllables: list[Syllable], source_path: str) -> list[SyllableEntr
     """Build a syllable bank from aligned source syllables."""
     entries = []
     for i, syl in enumerate(syllables):
-        labels = [p.label for p in syl.phonemes]
+        labels = [normalize_phoneme(p.label) for p in syl.phonemes]
         entries.append(SyllableEntry(
             phoneme_labels=labels,
             start=syl.start,

@@ -9,6 +9,12 @@ from glottisdale.speak.phonetic_distance import (
 )
 from glottisdale.speak.syllable_bank import SyllableEntry
 
+# Default bonus applied when consecutive target syllables match to adjacent
+# source syllables.  A value of 3 means the DP will prefer a contiguous
+# source syllable whose phonetic distance is up to 3 worse than the
+# globally‑best non‑contiguous alternative.
+_CONTINUITY_BONUS = 7
+
 
 @dataclass
 class MatchResult:
@@ -29,35 +35,114 @@ class MatchResult:
         }
 
 
+def _are_adjacent(a: SyllableEntry, b: SyllableEntry) -> bool:
+    """True if *b* immediately follows *a* in the same source file."""
+    return a.source_path == b.source_path and b.index == a.index + 1
+
+
 def match_syllables(
     target_syllables: list[list[str]],
     bank: list[SyllableEntry],
     target_stresses: list[int | None] | None = None,
+    continuity_bonus: int = _CONTINUITY_BONUS,
 ) -> list[MatchResult]:
-    """Match each target syllable to the best source syllable in the bank.
+    """Match target syllables to source bank using Viterbi DP.
+
+    Finds the sequence of source syllables that minimises total phonetic
+    distance while rewarding contiguous source runs (adjacent source
+    syllables matched to consecutive target syllables).
 
     Args:
         target_syllables: List of syllables, each a list of ARPABET phonemes.
         bank: Source syllable bank to search.
         target_stresses: Optional stress levels for tie-breaking.
+        continuity_bonus: Cost reduction for adjacent source syllables.
 
     Returns:
         One MatchResult per target syllable.
     """
-    results = []
+    n = len(target_syllables)
+    b = len(bank)
+    if n == 0 or b == 0:
+        return []
+
+    # Pre‑compute pairwise distances (with small stress penalty for ties)
+    dists: list[list[float]] = []
     for i, target in enumerate(target_syllables):
-        target_stress = (
-            target_stresses[i] if target_stresses and i < len(target_stresses)
+        stress = (
+            target_stresses[i]
+            if target_stresses and i < len(target_stresses)
             else None
         )
-        best = _find_best(target, bank, target_stress)
-        results.append(MatchResult(
-            target_phonemes=target,
-            entry=best[0],
-            distance=best[1],
+        row: list[float] = []
+        for entry in bank:
+            d = syllable_distance(target, entry.phoneme_labels)
+            if stress is not None and entry.stress != stress:
+                d += 0.1  # tiny penalty, only matters for tie‑breaking
+            row.append(d)
+        dists.append(row)
+
+    # Pre‑compute predecessor map: pred[j] = k  iff  bank[k] → bank[j]
+    pred: dict[int, int] = {}
+    for j in range(b):
+        for k in range(b):
+            if _are_adjacent(bank[k], bank[j]):
+                pred[j] = k
+                break
+
+    # --- Viterbi DP ---
+    INF = float("inf")
+
+    # dp[j] = min total cost when current target matched to bank[j]
+    dp = list(dists[0])
+    # parent[i][j] = bank index chosen for target i‑1 on the best path to j
+    parents: list[list[int]] = [[-1] * b]  # placeholder for i=0
+
+    for i in range(1, n):
+        new_dp = [INF] * b
+        new_parent = [-1] * b
+
+        # Best previous cost across all bank entries (non‑contiguous case)
+        min_prev = min(dp)
+
+        for j in range(b):
+            cost = dists[i][j]
+
+            # Non‑contiguous: best of any previous bank entry
+            best = min_prev + cost
+            # Find the k that achieves min_prev (first one is fine)
+            best_k = dp.index(min_prev)
+
+            # Contiguous: predecessor in the same source
+            if j in pred:
+                k = pred[j]
+                contiguous = dp[k] + cost - continuity_bonus
+                if contiguous < best:
+                    best = contiguous
+                    best_k = k
+
+            new_dp[j] = best
+            new_parent[j] = best_k
+
+        dp = new_dp
+        parents.append(new_parent)
+
+    # --- Backtrace ---
+    best_last = min(range(b), key=lambda j: dp[j])
+    path = [best_last]
+    for i in range(n - 1, 0, -1):
+        path.append(parents[i][path[-1]])
+    path.reverse()
+
+    return [
+        MatchResult(
+            target_phonemes=target_syllables[i],
+            entry=bank[path[i]],
+            distance=int(dists[i][path[i]]),
             target_index=i,
-        ))
-    return results
+        )
+        for i in range(n)
+    ]
 
 
 def match_phonemes(
@@ -93,26 +178,3 @@ def match_phonemes(
             target_index=i,
         ))
     return results
-
-
-def _find_best(
-    target: list[str],
-    bank: list[SyllableEntry],
-    target_stress: int | None,
-) -> tuple[SyllableEntry, int]:
-    """Find the best matching bank entry for a target syllable."""
-    best_entry = bank[0]
-    best_dist = syllable_distance(target, bank[0].phoneme_labels)
-    best_stress_match = (bank[0].stress == target_stress) if target_stress is not None else True
-
-    for entry in bank[1:]:
-        d = syllable_distance(target, entry.phoneme_labels)
-        stress_match = (entry.stress == target_stress) if target_stress is not None else True
-
-        # Prefer lower distance; break ties by stress match, then index
-        if d < best_dist or (d == best_dist and stress_match and not best_stress_match):
-            best_entry = entry
-            best_dist = d
-            best_stress_match = stress_match
-
-    return best_entry, best_dist

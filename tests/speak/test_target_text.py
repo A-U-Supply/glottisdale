@@ -47,3 +47,14 @@ class TestTextToSyllables:
         words = {s.word for s in result}
         assert "hello" in words or "hello," in words  # either is acceptable
         assert len(result) >= 3
+
+    def test_no_punctuation_in_phonemes(self):
+        """g2p_en may leak punctuation; ensure it's filtered out."""
+        result = text_to_syllables("hello, world.")
+        all_phonemes = []
+        for syl in result:
+            all_phonemes.extend(syl.phonemes)
+        for p in all_phonemes:
+            assert p.isalpha() or p[-1].isdigit(), (
+                f"Punctuation leaked into phonemes: {p!r}"
+            )

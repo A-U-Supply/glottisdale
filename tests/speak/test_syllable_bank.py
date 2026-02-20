@@ -58,3 +58,25 @@ class TestBuildBank:
         assert d["phonemes"] == ["B", "AH1"]
         assert d["word"] == "but"
         assert d["source"] == "test.wav"
+
+    def test_normalizes_ipa_labels(self):
+        """IPA labels from BFA aligner are converted to ARPABET."""
+        syls = [
+            _make_syllable(["b", "ʌ", "t"], 0.0, 0.3, word="but"),
+            _make_syllable(["k", "æ", "t"], 0.3, 0.7, word="cat"),
+        ]
+        bank = build_bank(syls, source_path="test.wav")
+        assert bank[0].phoneme_labels == ["B", "AH", "T"]
+        assert bank[1].phoneme_labels == ["K", "AE", "T"]
+
+    def test_normalizes_ipa_diphthongs(self):
+        """IPA diphthongs are normalized to ARPABET."""
+        syls = [_make_syllable(["aɪ"], 0.0, 0.3, word="eye")]
+        bank = build_bank(syls, source_path="test.wav")
+        assert bank[0].phoneme_labels == ["AY"]
+
+    def test_arpabet_labels_unchanged(self):
+        """Already-ARPABET labels pass through normalization unchanged."""
+        syls = [_make_syllable(["B", "AH1"], 0.0, 0.3, word="but")]
+        bank = build_bank(syls, source_path="test.wav")
+        assert bank[0].phoneme_labels == ["B", "AH1"]

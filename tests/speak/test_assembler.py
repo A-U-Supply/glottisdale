@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 from glottisdale.speak.assembler import (
     plan_timing,
     assemble,
+    _group_contiguous_runs,
     TimingPlan,
 )
 from glottisdale.speak.matcher import MatchResult
@@ -88,3 +89,52 @@ class TestAssemble:
         assert mock_cut.called
         assert mock_concat.called
         assert result == tmp_path / "speak.wav"
+
+
+class TestGroupContiguousRuns:
+    def test_all_contiguous(self):
+        """Adjacent source syllables are grouped into one run."""
+        entries = [
+            _entry(["B", "AH1"], start=0.0, end=0.3, index=0),
+            _entry(["K", "AE1"], start=0.3, end=0.6, index=1),
+            _entry(["T", "IY1"], start=0.6, end=0.9, index=2),
+        ]
+        matches = [_match(["B", "AH1"], entries[0], target_index=i) for i, _ in enumerate(entries)]
+        for i, e in enumerate(entries):
+            matches[i] = _match(["X"], e, target_index=i)
+        timing = [TimingPlan(0.0, 0.3, 1.0)] * 3
+        runs = _group_contiguous_runs(matches, timing)
+        assert len(runs) == 1
+        assert runs[0] == [0, 1, 2]
+
+    def test_all_isolated(self):
+        """Non-adjacent syllables are each their own run."""
+        entries = [
+            _entry(["B", "AH1"], start=0.0, end=0.3, index=0),
+            _entry(["K", "AE1"], start=2.0, end=2.3, index=5),
+            _entry(["T", "IY1"], start=4.0, end=4.3, index=10),
+        ]
+        matches = [_match(["X"], e, target_index=i) for i, e in enumerate(entries)]
+        timing = [TimingPlan(0.0, 0.3, 1.0)] * 3
+        runs = _group_contiguous_runs(matches, timing)
+        assert len(runs) == 3
+        assert all(len(r) == 1 for r in runs)
+
+    def test_mixed_runs(self):
+        """Mix of contiguous and non-contiguous creates correct grouping."""
+        entries = [
+            _entry(["B", "AH1"], start=0.0, end=0.3, index=0),
+            _entry(["K", "AE1"], start=0.3, end=0.6, index=1),  # adjacent to 0
+            _entry(["T", "IY1"], start=5.0, end=5.3, index=20),  # gap
+            _entry(["S", "AH1"], start=5.3, end=5.6, index=21),  # adjacent to 20
+        ]
+        matches = [_match(["X"], e, target_index=i) for i, e in enumerate(entries)]
+        timing = [TimingPlan(0.0, 0.3, 1.0)] * 4
+        runs = _group_contiguous_runs(matches, timing)
+        assert len(runs) == 2
+        assert runs[0] == [0, 1]
+        assert runs[1] == [2, 3]
+
+    def test_empty(self):
+        runs = _group_contiguous_runs([], [])
+        assert runs == []
