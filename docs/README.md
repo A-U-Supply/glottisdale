@@ -1,6 +1,6 @@
 # Glottisdale Documentation
 
-Syllable-level audio collage and vocal MIDI mapping tool.
+Syllable-level audio collage, vocal MIDI mapping, and phonetic speech reconstruction tool.
 
 ## Getting Started
 
@@ -16,8 +16,7 @@ Syllable-level audio collage and vocal MIDI mapping tool.
 
 - [Philosophy & Research](reference/philosophy.md) — Why we built it this way
 - [Architecture](reference/architecture.md) — Pipeline diagrams and module map
-- [Python API](reference/python-api.md) — Using glottisdale as a library
 
 ## Legacy
 
-- [Legacy Design Documents](legacy/README.md) — Original design docs from the monorepo era
+- [Legacy Documents](legacy/README.md) — Original Python API reference and design docs from the monorepo era
