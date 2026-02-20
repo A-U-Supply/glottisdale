@@ -9,3 +9,5 @@ build/
 .pytest_cache/
 *.wav
 !tests/fixtures/*.wav
+test-files/
+glottisdale-output/

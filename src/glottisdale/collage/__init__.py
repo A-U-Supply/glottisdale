@@ -765,9 +765,18 @@ def process(
         # Create zip of individual clips
         zip_path = output_dir / "clips.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            seen: dict[str, int] = {}
             for clip in clips:
                 if clip.output_path.exists():
-                    zf.write(clip.output_path, clip.output_path.name)
+                    name = clip.output_path.name
+                    if name in seen:
+                        seen[name] += 1
+                        stem = clip.output_path.stem
+                        suffix = clip.output_path.suffix
+                        name = f"{stem}_rep{seen[name]}{suffix}"
+                    else:
+                        seen[name] = 0
+                    zf.write(clip.output_path, name)
 
         # Write manifest
         manifest = {
