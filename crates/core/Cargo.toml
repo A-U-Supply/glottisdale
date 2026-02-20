@@ -11,6 +11,7 @@ serde_json.workspace = true
 log.workspace = true
 rand.workspace = true
 sha2.workspace = true
+lazy_static.workspace = true
 hound = "3"
 rubato = "0.16"
 rodio = "0.20"
