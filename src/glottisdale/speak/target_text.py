@@ -48,7 +48,11 @@ def text_to_syllables(text: str) -> list[TextSyllable]:
     for wi, word in enumerate(words):
         # g2p_en returns phonemes; filter out spaces
         raw = g2p(word)
-        phonemes = [p for p in raw if p.strip() and p != " "]
+        phonemes = [
+            p for p in raw
+            if p.strip() and p != " "
+            and (p.isalpha() or p[-1].isdigit())
+        ]
 
         if not phonemes:
             continue
