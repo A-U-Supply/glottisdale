@@ -1,6 +1,6 @@
 //! Main application state and UI layout.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -41,6 +41,8 @@ enum ProcessingStatus {
 struct ProcessingState {
     status: Arc<Mutex<ProcessingStatus>>,
     log_lines: Arc<Mutex<Vec<String>>>,
+    /// Output file paths parsed from CLI stdout (e.g. "Output: path/to/file.wav")
+    output_paths: Arc<Mutex<Vec<(String, PathBuf)>>>,
 }
 
 impl ProcessingState {
@@ -48,6 +50,7 @@ impl ProcessingState {
         Self {
             status: Arc::new(Mutex::new(ProcessingStatus::Idle)),
             log_lines: Arc::new(Mutex::new(Vec::new())),
+            output_paths: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -67,9 +70,18 @@ impl ProcessingState {
         self.log_lines.lock().unwrap().clone()
     }
 
+    fn add_output(&self, label: &str, path: PathBuf) {
+        self.output_paths.lock().unwrap().push((label.to_string(), path));
+    }
+
+    fn get_outputs(&self) -> Vec<(String, PathBuf)> {
+        self.output_paths.lock().unwrap().clone()
+    }
+
     fn clear(&self) {
         *self.status.lock().unwrap() = ProcessingStatus::Idle;
         self.log_lines.lock().unwrap().clear();
+        self.output_paths.lock().unwrap().clear();
     }
 }
 
@@ -314,6 +326,7 @@ impl eframe::App for GlottisdaleApp {
         // Left panel: source files
         egui::SidePanel::left("source_panel")
             .default_width(250.0)
+            .min_width(120.0)
             .resizable(true)
             .show(ctx, |ui| {
                 ui.heading("Source Files");
@@ -342,10 +355,10 @@ impl eframe::App for GlottisdaleApp {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_else(|| path.display().to_string());
-                            ui.label(&name);
                             if ui.small_button("x").clicked() {
                                 to_remove = Some(i);
                             }
+                            ui.add(egui::Label::new(&name).truncate());
                         });
                     }
                 });
@@ -613,6 +626,51 @@ fn show_speak_settings(ui: &mut egui::Ui, s: &mut SpeakSettings) {
 
 // ─── Workspace panels ───────────────────────────────────────────
 
+/// Show output files with Play and Open Folder buttons. Used by all workspace panels.
+fn show_output_section(ui: &mut egui::Ui, processing: &ProcessingState) {
+    match processing.get_status() {
+        ProcessingStatus::Done(msg) => {
+            ui.separator();
+            ui.colored_label(egui::Color32::GREEN, &msg);
+
+            let outputs = processing.get_outputs();
+            if !outputs.is_empty() {
+                ui.add_space(8.0);
+
+                // Open Folder button (use parent dir of first output)
+                if let Some(run_dir) = outputs.first().and_then(|(_, p)| p.parent()) {
+                    ui.horizontal(|ui| {
+                        if ui.button("Open Folder").clicked() {
+                            open_path(run_dir);
+                        }
+                        ui.monospace(run_dir.display().to_string());
+                    });
+                }
+
+                ui.add_space(4.0);
+
+                for (label, path) in &outputs {
+                    ui.horizontal(|ui| {
+                        if ui.button("Play").clicked() {
+                            open_path(path);
+                        }
+                        let filename = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| path.display().to_string());
+                        ui.label(format!("{}: {}", label, filename));
+                    });
+                }
+            }
+        }
+        ProcessingStatus::Error(msg) => {
+            ui.separator();
+            ui.colored_label(egui::Color32::RED, &msg);
+        }
+        _ => {}
+    }
+}
+
 fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     if app.source_files.is_empty() {
         ui.vertical_centered(|ui| {
@@ -635,21 +693,12 @@ fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
 
     ui.separator();
 
-    // Show source file list with info
     ui.label(format!("{} source file(s) loaded", app.source_files.len()));
     for path in &app.source_files {
         ui.monospace(path.display().to_string());
     }
 
-    // Show result if done
-    if let ProcessingStatus::Done(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::GREEN, &msg);
-    }
-    if let ProcessingStatus::Error(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::RED, &msg);
-    }
+    show_output_section(ui, &app.processing);
 }
 
 fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
@@ -683,14 +732,7 @@ fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     ui.label(format!("{} source file(s)", app.source_files.len()));
     ui.label(format!("MIDI: {}", app.sing.midi_dir));
 
-    if let ProcessingStatus::Done(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::GREEN, &msg);
-    }
-    if let ProcessingStatus::Error(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::RED, &msg);
-    }
+    show_output_section(ui, &app.processing);
 }
 
 fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
@@ -727,14 +769,7 @@ fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
         ui.label(format!("Reference: {}", app.speak.reference_path));
     }
 
-    if let ProcessingStatus::Done(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::GREEN, &msg);
-    }
-    if let ProcessingStatus::Error(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::RED, &msg);
-    }
+    show_output_section(ui, &app.processing);
 }
 
 // ─── Pipeline runners (background threads) ──────────────────────
@@ -843,18 +878,39 @@ fn start_speak(app: &mut GlottisdaleApp) {
     run_cli_subprocess(state, args);
 }
 
+/// Open a file or directory in the system's default handler.
+fn open_path(path: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn().ok();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn().ok();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", ""])
+            .arg(path)
+            .spawn()
+            .ok();
+    }
+}
+
 /// Run the CLI as a subprocess and capture output.
 fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
     thread::spawn(move || {
-        state.add_log(&format!("Running: {}", args.join(" ")));
-        state.set_status(ProcessingStatus::Running("Processing...".into()));
-
         // Find our own binary path and use the CLI binary
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("glottisdale"));
         let cli_exe = exe
             .parent()
             .map(|p| p.join("glottisdale"))
             .unwrap_or_else(|| PathBuf::from("glottisdale"));
+
+        state.add_log(&format!("CLI binary: {}", cli_exe.display()));
+        state.add_log(&format!("Running: {} {}", cli_exe.display(), args[1..].join(" ")));
+        state.set_status(ProcessingStatus::Running("Processing...".into()));
 
         let result = std::process::Command::new(&cli_exe)
             .args(&args[1..]) // skip "glottisdale" since it's the program name
@@ -869,6 +925,19 @@ fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
 
                 for line in stdout.lines() {
                     state.add_log(line);
+
+                    // Parse output file paths from CLI stdout.
+                    // The CLI prints lines like:
+                    //   Output: ./glottisdale-output/2026-02-20-breathy-bassoon/concatenated.wav
+                    //   A cappella: ./glottisdale-output/.../acappella.wav
+                    for prefix in ["Output:", "A cappella:"] {
+                        if let Some(path_str) = line.strip_prefix(prefix) {
+                            let path_str = path_str.trim();
+                            if !path_str.is_empty() {
+                                state.add_output(prefix.trim_end_matches(':'), PathBuf::from(path_str));
+                            }
+                        }
+                    }
                 }
                 for line in stderr.lines() {
                     state.add_log(&format!("[stderr] {}", line));
@@ -877,13 +946,23 @@ fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
                 if output.status.success() {
                     state.set_status(ProcessingStatus::Done("Completed successfully".into()));
                 } else {
-                    let msg = stderr.lines().last().unwrap_or("Unknown error").to_string();
+                    // Find the first meaningful error line (skip empty lines and
+                    // clap's generic "For more information, try '--help'." hint)
+                    let msg = stderr
+                        .lines()
+                        .find(|l| {
+                            let trimmed = l.trim();
+                            !trimmed.is_empty() && !trimmed.starts_with("For more information")
+                        })
+                        .unwrap_or("Unknown error")
+                        .to_string();
                     state.set_status(ProcessingStatus::Error(msg));
                 }
             }
             Err(e) => {
-                state.add_log(&format!("Failed to run CLI: {}", e));
-                state.set_status(ProcessingStatus::Error(format!("Failed to run CLI: {}", e)));
+                let msg = format!("Failed to run CLI ({}): {}", cli_exe.display(), e);
+                state.add_log(&msg);
+                state.set_status(ProcessingStatus::Error(msg));
             }
         }
     });

@@ -454,9 +454,13 @@ fn run_collage(args: CollageArgs) -> Result<()> {
         &config,
     )?;
 
-    // Create clips.zip from the clips directory
+    // Create clips zip from the clips directory
     let clips_dir = run_dir.join("clips");
-    let zip_path = run_dir.join("clips.zip");
+    let run_name = run_dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let zip_path = run_dir.join(format!("{}-clips.zip", run_name));
     if clips_dir.is_dir() {
         let zip_file = std::fs::File::create(&zip_path)?;
         let mut zip = zip::ZipWriter::new(zip_file);

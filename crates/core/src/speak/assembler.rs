@@ -288,7 +288,11 @@ pub fn assemble(
         concatenate(&clips, crossfade_samples)
     };
 
-    let output_path = output_dir.join("speak.wav");
+    let run_name = output_dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let output_path = output_dir.join(format!("{}.wav", run_name));
     write_wav(&output_path, &output_samples, sample_rate)?;
 
     Ok(output_path)
