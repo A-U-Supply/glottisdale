@@ -226,6 +226,18 @@ Speak-specific:
 
 Native desktop GUI. Tab-based interface with file picker, settings panels, and log viewer for all three pipelines.
 
+#### Interactive Syllable Editor
+
+After running any pipeline, click **"Edit Arrangement"** to open the interactive editor. You can also click **"Build Bank & Edit"** to skip the pipeline and jump straight into manual arrangement.
+
+The editor provides:
+
+- **Syllable bank** — all aligned syllables from your source audio, filterable, with waveform previews. Click to add to the timeline, double-click to preview.
+- **Timeline** — drag-to-reorder clips, zoom/pan (Ctrl+scroll / scroll), click to select, Shift+click for multi-select.
+- **Effects** — right-click any clip for stutter (x2-x8), time stretch (0.5x-4x), pitch shift (-12 to +12 semitones), duplicate, delete, and clear effects.
+- **Playback** — Play/Pause/Stop with a moving cursor. Plays from cursor position.
+- **Export** — render the arrangement to a WAV file.
+
 ## Dependencies
 
 - **Rust 1.75+** for building from source

@@ -30,8 +30,13 @@ pub fn play_wav(path: &std::path::Path) -> Result<()> {
     play_samples(&samples, sr)
 }
 
+/// Create an F64Source for use in other modules.
+pub fn make_f64_source(samples: Vec<f64>, sample_rate: u32) -> F64Source {
+    F64Source::new(samples, sample_rate)
+}
+
 /// A rodio Source wrapping f64 samples, converting to f32 on the fly.
-struct F64Source {
+pub struct F64Source {
     samples: Arc<Vec<f64>>,
     position: usize,
     sample_rate: u32,
