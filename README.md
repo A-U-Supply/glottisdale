@@ -24,6 +24,14 @@ The Whisper speech recognition model (~140 MB) downloads automatically on first 
 
 ### macOS (Apple Silicon)
 
+**Option A: DMG (recommended)**
+
+1. Download `Glottisdale-darwin-arm64.dmg` from the [latest release](https://github.com/A-U-Supply/glottisdale/releases/latest)
+2. Open the DMG and drag **Glottisdale.app** into your **Applications** folder
+3. The DMG also includes the `glottisdale` CLI binary — copy it to `/usr/local/bin/` if you want CLI access
+
+**Option B: Standalone binaries**
+
 ```bash
 # Download
 curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-gui-darwin-arm64 -o glottisdale-gui
@@ -36,12 +44,30 @@ chmod +x glottisdale-gui glottisdale
 ./glottisdale-gui
 ```
 
-> **macOS Gatekeeper:** The first time you run it, macOS may block it. Go to **System Settings > Privacy & Security**, scroll down, and click **"Allow Anyway"**, then run it again.
-
 Optionally move both binaries somewhere on your PATH so you can run them from anywhere:
 
 ```bash
 sudo mv glottisdale glottisdale-gui /usr/local/bin/
+```
+
+#### macOS security (Gatekeeper)
+
+Since Glottisdale is not code-signed with an Apple Developer certificate, macOS will block it on first launch. Here's how to allow it:
+
+1. **Try to open the app** — double-click Glottisdale.app (or run `./glottisdale-gui` in the terminal). macOS will show a dialog saying it "can't be opened because Apple cannot check it for malicious software."
+2. **Open System Settings** — go to **System Settings > Privacy & Security**
+3. **Scroll down** to the "Security" section. You'll see a message like *"Glottisdale-gui was blocked from use because it is not from an identified developer."*
+4. **Click "Allow Anyway"** and enter your password
+5. **Run the app again** — this time macOS will show a final dialog. Click **"Open"** to confirm.
+
+You only need to do this once. After that, macOS will remember your choice.
+
+**Alternative (terminal):** You can also remove the quarantine attribute directly:
+
+```bash
+xattr -cr /Applications/Glottisdale.app
+# or for standalone binaries:
+xattr -cr ./glottisdale-gui ./glottisdale
 ```
 
 ### Linux (x86_64)
