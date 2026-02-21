@@ -24,3 +24,4 @@ whisper-rs = { version = "0.13", optional = true }
 reqwest = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 symphonia.workspace = true
+ssstretch.workspace = true

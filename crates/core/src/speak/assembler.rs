@@ -233,13 +233,7 @@ pub fn assemble(
         };
 
         if (stretch - 1.0).abs() > 0.05 {
-            match time_stretch(&clip, *sr, stretch) {
-                Ok(stretched) => clip = stretched,
-                Err(_) => {
-                    // Fall back to simple stretching
-                    clip = crate::audio::effects::time_stretch_simple(&clip, *sr, stretch);
-                }
-            }
+            clip = time_stretch(&clip, *sr, stretch)?;
         }
 
         // Pitch-shift (use average of per-syllable shifts for the run)

@@ -1,7 +1,7 @@
 //! Audio effects: cut, crossfade, concatenation, pitch shift, time stretch,
 //! volume adjustment, mixing.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 /// Cut an audio segment with padding and fade.
 ///
@@ -145,172 +145,66 @@ pub fn concatenate_with_gaps(
     concatenate(&all_clips.iter().collect::<Vec<_>>().iter().map(|c| c.as_slice().to_vec()).collect::<Vec<_>>(), cf_samples)
 }
 
-/// Pitch-shift by semitones using sample-rate manipulation.
+/// Pitch-shift by semitones using Signalsmith Stretch (phase vocoder).
 ///
-/// This is a simple pitch shift that also changes duration (like asetrate).
-/// For pitch-preserving shift, use `pitch_shift_preserve` (requires rubberband).
-pub fn pitch_shift_simple(samples: &[f64], sr: u32, semitones: f64) -> (Vec<f64>, u32) {
-    if semitones.abs() < 0.01 {
-        return (samples.to_vec(), sr);
-    }
-
-    let ratio = 2.0f64.powf(semitones / 12.0);
-    let new_sr = (sr as f64 * ratio).round() as u32;
-
-    // Resample back to original sample rate
-    match super::io::resample(samples, new_sr, sr) {
-        Ok(resampled) => (resampled, sr),
-        Err(_) => (samples.to_vec(), sr),
-    }
-}
-
-/// Time-stretch by factor using simple overlap-add.
-///
-/// `factor` > 1.0 = slower (longer), < 1.0 = faster (shorter).
-/// This is a basic SOLA implementation. For high-quality stretching,
-/// rubberband should be used via subprocess or native bindings.
-pub fn time_stretch_simple(samples: &[f64], _sr: u32, factor: f64) -> Vec<f64> {
-    if (factor - 1.0).abs() < 0.01 || samples.is_empty() {
-        return samples.to_vec();
-    }
-
-    // Simple linear interpolation resampling (changes pitch)
-    // For a proper pitch-preserving stretch, we'd use rubberband
-    let new_len = (samples.len() as f64 * factor).round() as usize;
-    if new_len == 0 {
-        return vec![];
-    }
-
-    let mut result = Vec::with_capacity(new_len);
-    for i in 0..new_len {
-        let src_pos = i as f64 / factor;
-        let src_idx = src_pos as usize;
-        let frac = src_pos - src_idx as f64;
-
-        if src_idx + 1 < samples.len() {
-            result.push(samples[src_idx] * (1.0 - frac) + samples[src_idx + 1] * frac);
-        } else if src_idx < samples.len() {
-            result.push(samples[src_idx]);
-        } else {
-            result.push(0.0);
-        }
-    }
-
-    result
-}
-
-/// Try to time-stretch using rubberband CLI. Falls back to simple stretch.
-pub fn time_stretch(samples: &[f64], sr: u32, factor: f64) -> Result<Vec<f64>> {
-    if (factor - 1.0).abs() < 0.01 {
-        return Ok(samples.to_vec());
-    }
-
-    // Try rubberband via CLI
-    match time_stretch_rubberband(samples, sr, factor) {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            log::warn!("rubberband unavailable ({}), using simple stretch", e);
-            Ok(time_stretch_simple(samples, sr, factor))
-        }
-    }
-}
-
-/// Time-stretch using rubberband CLI as subprocess.
-fn time_stretch_rubberband(samples: &[f64], sr: u32, factor: f64) -> Result<Vec<f64>> {
-    use std::process::Command;
-
-    let tmp_dir = std::env::temp_dir().join("glottisdale_stretch");
-    std::fs::create_dir_all(&tmp_dir)?;
-
-    let input_path = tmp_dir.join("stretch_in.wav");
-    let output_path = tmp_dir.join("stretch_out.wav");
-
-    super::io::write_wav(&input_path, samples, sr)?;
-
-    // rubberband tempo is inverse: factor 2.0 (twice as long) = tempo 0.5
-    let tempo = 1.0 / factor;
-
-    let result = Command::new("rubberband")
-        .args([
-            "--tempo", &format!("{:.4}", tempo),
-            input_path.to_str().unwrap(),
-            output_path.to_str().unwrap(),
-        ])
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            let (stretched, _) = super::io::read_wav(&output_path)?;
-            // Cleanup
-            std::fs::remove_file(&input_path).ok();
-            std::fs::remove_file(&output_path).ok();
-            Ok(stretched)
-        }
-        Ok(output) => {
-            std::fs::remove_file(&input_path).ok();
-            std::fs::remove_file(&output_path).ok();
-            bail!("rubberband failed: {}", String::from_utf8_lossy(&output.stderr));
-        }
-        Err(e) => {
-            std::fs::remove_file(&input_path).ok();
-            bail!("rubberband not found: {}", e);
-        }
-    }
-}
-
-/// Pitch-shift using rubberband CLI (pitch-preserving).
+/// Preserves duration while shifting pitch. High quality, no external tools.
 pub fn pitch_shift(samples: &[f64], sr: u32, semitones: f64) -> Result<Vec<f64>> {
     if semitones.abs() < 0.01 {
         return Ok(samples.to_vec());
     }
 
-    match pitch_shift_rubberband(samples, sr, semitones) {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            log::warn!("rubberband pitch shift unavailable ({}), using simple shift", e);
-            let (shifted, _) = pitch_shift_simple(samples, sr, semitones);
-            Ok(shifted)
-        }
-    }
+    let mut stretch = ssstretch::Stretch::new();
+    stretch.preset_default(1, sr as f32); // mono
+    stretch.set_transpose_semitones(semitones as f32, None);
+
+    let input_f32: Vec<f32> = samples.iter().map(|&s| s as f32).collect();
+    let in_len = input_f32.len() as i32;
+    let out_len = in_len; // pitch shift preserves length
+
+    let mut output_f32 = vec![vec![0.0f32; out_len as usize]; 1];
+    stretch.process_vec(
+        &[input_f32],
+        in_len,
+        &mut output_f32,
+        out_len,
+    );
+
+    Ok(output_f32[0].iter().map(|&s| s as f64).collect())
 }
 
-/// Pitch-shift using rubberband CLI.
-fn pitch_shift_rubberband(samples: &[f64], sr: u32, semitones: f64) -> Result<Vec<f64>> {
-    use std::process::Command;
-
-    let tmp_dir = std::env::temp_dir().join("glottisdale_pitch");
-    std::fs::create_dir_all(&tmp_dir)?;
-
-    let input_path = tmp_dir.join("pitch_in.wav");
-    let output_path = tmp_dir.join("pitch_out.wav");
-
-    super::io::write_wav(&input_path, samples, sr)?;
-
-    let result = Command::new("rubberband")
-        .args([
-            "--pitch", &format!("{:.4}", semitones),
-            input_path.to_str().unwrap(),
-            output_path.to_str().unwrap(),
-        ])
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            let (shifted, _) = super::io::read_wav(&output_path)?;
-            std::fs::remove_file(&input_path).ok();
-            std::fs::remove_file(&output_path).ok();
-            Ok(shifted)
-        }
-        Ok(output) => {
-            std::fs::remove_file(&input_path).ok();
-            std::fs::remove_file(&output_path).ok();
-            bail!("rubberband failed: {}", String::from_utf8_lossy(&output.stderr));
-        }
-        Err(e) => {
-            std::fs::remove_file(&input_path).ok();
-            bail!("rubberband not found: {}", e);
-        }
+/// Time-stretch by factor using Signalsmith Stretch (phase vocoder).
+///
+/// `factor` > 1.0 = slower (longer), < 1.0 = faster (shorter).
+/// Preserves pitch while changing duration. High quality, no external tools.
+pub fn time_stretch(samples: &[f64], sr: u32, factor: f64) -> Result<Vec<f64>> {
+    if (factor - 1.0).abs() < 0.01 {
+        return Ok(samples.to_vec());
     }
+
+    if samples.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut stretch = ssstretch::Stretch::new();
+    stretch.preset_default(1, sr as f32);
+
+    let input_f32: Vec<f32> = samples.iter().map(|&s| s as f32).collect();
+    let in_len = input_f32.len() as i32;
+    let out_len = (samples.len() as f64 * factor).round() as i32;
+
+    if out_len <= 0 {
+        return Ok(vec![]);
+    }
+
+    let mut output_f32 = vec![vec![0.0f32; out_len as usize]; 1];
+    stretch.process_vec(
+        &[input_f32],
+        in_len,
+        &mut output_f32,
+        out_len,
+    );
+
+    Ok(output_f32[0].iter().map(|&s| s as f64).collect())
 }
 
 /// Adjust volume by dB amount. Modifies samples in place.
@@ -462,24 +356,62 @@ mod tests {
     }
 
     #[test]
-    fn test_time_stretch_simple_no_change() {
+    fn test_time_stretch_no_change() {
         let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let result = time_stretch_simple(&samples, 16000, 1.0);
+        let result = time_stretch(&samples, 16000, 1.0).unwrap();
         assert_eq!(result, samples);
     }
 
     #[test]
-    fn test_time_stretch_simple_double() {
+    fn test_time_stretch_double() {
         let samples: Vec<f64> = (0..100).map(|i| i as f64).collect();
-        let result = time_stretch_simple(&samples, 16000, 2.0);
+        let result = time_stretch(&samples, 16000, 2.0).unwrap();
         assert!((result.len() as f64 - 200.0).abs() < 2.0);
     }
 
     #[test]
-    fn test_pitch_shift_simple_no_change() {
+    fn test_pitch_shift_no_change() {
         let samples = vec![1.0; 100];
-        let (result, sr) = pitch_shift_simple(&samples, 16000, 0.0);
+        let result = pitch_shift(&samples, 16000, 0.0).unwrap();
         assert_eq!(result, samples);
-        assert_eq!(sr, 16000);
+    }
+
+    #[test]
+    fn test_pitch_shift_native_up() {
+        // 1 second of 440Hz sine at 16kHz
+        let sr = 16000u32;
+        let samples: Vec<f64> = (0..sr as usize)
+            .map(|i| (2.0 * std::f64::consts::PI * 440.0 * i as f64 / sr as f64).sin())
+            .collect();
+
+        let result = pitch_shift(&samples, sr, 2.0).unwrap();
+        // Should preserve length (not change speed)
+        assert!(
+            (result.len() as f64 - samples.len() as f64).abs() < 100.0,
+            "Pitch shift changed length: {} vs {}",
+            result.len(),
+            samples.len()
+        );
+        // Should not be silent
+        let rms: f64 = (result.iter().map(|s| s * s).sum::<f64>() / result.len() as f64).sqrt();
+        assert!(rms > 0.1, "Output is too quiet: RMS={}", rms);
+    }
+
+    #[test]
+    fn test_time_stretch_native_double() {
+        let sr = 16000u32;
+        let samples: Vec<f64> = (0..sr as usize)
+            .map(|i| (2.0 * std::f64::consts::PI * 440.0 * i as f64 / sr as f64).sin())
+            .collect();
+
+        let result = time_stretch(&samples, sr, 2.0).unwrap();
+        // Factor 2.0 = twice as long
+        let expected_len = samples.len() * 2;
+        assert!(
+            (result.len() as f64 - expected_len as f64).abs() / (expected_len as f64) < 0.1,
+            "Expected ~{} samples, got {}",
+            expected_len,
+            result.len()
+        );
     }
 }
