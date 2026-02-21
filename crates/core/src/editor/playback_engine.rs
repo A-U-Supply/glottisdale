@@ -29,6 +29,8 @@ pub struct PlaybackState {
     pub cursor_s: Arc<Mutex<f64>>,
     /// Whether currently playing.
     pub is_playing: Arc<Mutex<bool>>,
+    /// Last error message from the playback thread.
+    pub last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl PlaybackState {
@@ -36,6 +38,7 @@ impl PlaybackState {
         Self {
             cursor_s: Arc::new(Mutex::new(0.0)),
             is_playing: Arc::new(Mutex::new(false)),
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -45,6 +48,16 @@ impl PlaybackState {
 
     pub fn is_playing(&self) -> bool {
         *self.is_playing.lock().unwrap()
+    }
+
+    /// Store an error message from the playback thread.
+    pub fn set_error(&self, msg: String) {
+        *self.last_error.lock().unwrap() = Some(msg);
+    }
+
+    /// Take the last error, clearing it.
+    pub fn take_error(&self) -> Option<String> {
+        self.last_error.lock().unwrap().take()
     }
 }
 
@@ -202,5 +215,20 @@ mod tests {
         let engine = PlaybackEngine::new();
         assert!(!engine.state.is_playing());
         engine.stop();
+    }
+
+    #[test]
+    fn test_playback_state_error_handling() {
+        let state = PlaybackState::new();
+
+        // Initially no error
+        assert!(state.take_error().is_none());
+
+        // Set an error
+        state.set_error("test error".to_string());
+        assert_eq!(state.take_error(), Some("test error".to_string()));
+
+        // After taking, error is cleared
+        assert!(state.take_error().is_none());
     }
 }
