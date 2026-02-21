@@ -15,6 +15,14 @@ pub const SOURCE_COLORS: &[(u8, u8, u8)] = &[
     (80, 160, 160),  // teal
 ];
 
+/// Drag-to-reorder state.
+pub struct DragState {
+    pub clip_index: usize,
+    pub clip_id: ClipId,
+    /// Index to insert before (None = not yet determined).
+    pub insert_before: Option<usize>,
+}
+
 /// Visual and interaction state for the timeline.
 pub struct TimelineState {
     /// Pixels per second (zoom level).
@@ -27,6 +35,10 @@ pub struct TimelineState {
     pub cursor_s: f64,
     /// Selected clip IDs.
     pub selected: Vec<ClipId>,
+    /// Clip ID for right-click context menu.
+    pub context_menu_clip: Option<ClipId>,
+    /// Active drag-to-reorder state.
+    pub drag: Option<DragState>,
 }
 
 impl Default for TimelineState {
@@ -37,6 +49,8 @@ impl Default for TimelineState {
             track_height: 80.0,
             cursor_s: 0.0,
             selected: Vec::new(),
+            context_menu_clip: None,
+            drag: None,
         }
     }
 }
@@ -94,18 +108,29 @@ fn source_color(index: usize) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-/// Paint the timeline with all clips.
+/// Find which clip index is at a given time, if any.
+fn clip_at_time(arrangement: &Arrangement, time_s: f64) -> Option<(usize, ClipId)> {
+    for (i, tc) in arrangement.timeline.iter().enumerate() {
+        let clip_end = tc.position_s + tc.effective_duration_s;
+        if time_s >= tc.position_s && time_s <= clip_end {
+            return Some((i, tc.id));
+        }
+    }
+    None
+}
+
+/// Paint the timeline with all clips. Returns (response, optional reorder).
 pub fn show_timeline(
     ui: &mut egui::Ui,
     arrangement: &Arrangement,
     state: &mut TimelineState,
     source_file_indices: &std::collections::HashMap<std::path::PathBuf, usize>,
-) -> egui::Response {
+) -> (egui::Response, Option<(usize, usize)>) {
     let desired_size = egui::vec2(ui.available_width(), state.track_height + 20.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
 
     if !ui.is_rect_visible(rect) {
-        return response;
+        return (response, None);
     }
 
     let painter = ui.painter_at(rect);
@@ -127,6 +152,7 @@ pub fn show_timeline(
     );
 
     // Paint clips
+    let dragging_id = state.drag.as_ref().map(|d| d.clip_id);
     for tc in &arrangement.timeline {
         let clip_left = state.time_to_px(tc.position_s) + rect.left();
         let clip_width = (tc.effective_duration_s * state.pixels_per_second) as f32;
@@ -147,8 +173,14 @@ pub fn show_timeline(
                 .get(&bank_clip.source_path)
                 .copied()
                 .unwrap_or(0);
-            let bg = source_color(src_idx).gamma_multiply(0.3);
-            let wf_color = source_color(src_idx);
+            let is_ghost = dragging_id == Some(tc.id);
+            let alpha = if is_ghost { 0.15 } else { 0.3 };
+            let bg = source_color(src_idx).gamma_multiply(alpha);
+            let wf_color = if is_ghost {
+                source_color(src_idx).gamma_multiply(0.4)
+            } else {
+                source_color(src_idx)
+            };
 
             paint_clip_block(
                 &painter,
@@ -157,7 +189,28 @@ pub fn show_timeline(
                 &bank_clip.label,
                 bg,
                 wf_color,
-                state.is_selected(tc.id),
+                state.is_selected(tc.id) && !is_ghost,
+            );
+        }
+    }
+
+    // Paint drag insertion indicator
+    if let Some(ref drag) = state.drag {
+        if let Some(insert_idx) = drag.insert_before {
+            let insert_x = if insert_idx < arrangement.timeline.len() {
+                state.time_to_px(arrangement.timeline[insert_idx].position_s) + rect.left()
+            } else if let Some(last) = arrangement.timeline.last() {
+                state.time_to_px(last.position_s + last.effective_duration_s) + rect.left()
+            } else {
+                rect.left()
+            };
+
+            painter.line_segment(
+                [
+                    egui::pos2(insert_x, track_rect.top()),
+                    egui::pos2(insert_x, track_rect.bottom()),
+                ],
+                egui::Stroke::new(3.0, egui::Color32::from_rgb(100, 180, 255)),
             );
         }
     }
@@ -178,25 +231,82 @@ pub fn show_timeline(
     state.handle_zoom(ui, &response);
     state.handle_pan(ui, &response);
 
-    // Handle click to select/set cursor
-    if response.clicked() {
+    let mut reorder: Option<(usize, usize)> = None;
+
+    // Handle drag-to-reorder
+    if response.drag_started() {
+        if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
+            let click_time = state.px_to_time(origin.x - rect.left());
+            if let Some((idx, id)) = clip_at_time(arrangement, click_time) {
+                state.drag = Some(DragState {
+                    clip_index: idx,
+                    clip_id: id,
+                    insert_before: None,
+                });
+                // Select the dragged clip
+                if !state.selected.contains(&id) {
+                    state.selected = vec![id];
+                }
+            }
+        }
+    }
+
+    if response.dragged() {
+        if let Some(ref mut drag) = state.drag {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let px = pos.x - rect.left();
+                let drag_time = px as f64 / state.pixels_per_second + state.scroll_offset_s;
+                // Find insertion position based on clip midpoints
+                let mut insert = arrangement.timeline.len();
+                for (i, tc) in arrangement.timeline.iter().enumerate() {
+                    if i == drag.clip_index {
+                        continue;
+                    }
+                    let mid = tc.position_s + tc.effective_duration_s / 2.0;
+                    if drag_time < mid {
+                        insert = i;
+                        break;
+                    }
+                }
+                drag.insert_before = Some(insert);
+            }
+        }
+    }
+
+    if response.drag_stopped() {
+        if let Some(drag) = state.drag.take() {
+            if let Some(insert) = drag.insert_before {
+                // Only reorder if actually moved to a different position
+                if insert != drag.clip_index && insert != drag.clip_index + 1 {
+                    reorder = Some((drag.clip_index, insert));
+                }
+            }
+        }
+    }
+
+    // Handle right-click for context menu
+    if response.secondary_clicked() {
+        if let Some(pos) = response.interact_pointer_pos() {
+            let click_time = state.px_to_time(pos.x - rect.left());
+            if let Some((_, id)) = clip_at_time(arrangement, click_time) {
+                state.context_menu_clip = Some(id);
+                if !state.selected.contains(&id) {
+                    state.selected = vec![id];
+                }
+            } else {
+                state.context_menu_clip = None;
+            }
+        }
+    }
+
+    // Handle click to select/set cursor (only if not dragging)
+    if response.clicked() && state.drag.is_none() {
         if let Some(pos) = response.interact_pointer_pos() {
             let click_time = state.px_to_time(pos.x - rect.left());
 
-            // Check if clicked on a clip
-            let mut clicked_clip = None;
-            for tc in &arrangement.timeline {
-                let clip_end = tc.position_s + tc.effective_duration_s;
-                if click_time >= tc.position_s && click_time <= clip_end {
-                    clicked_clip = Some(tc.id);
-                    break;
-                }
-            }
-
-            if let Some(clip_id) = clicked_clip {
+            if let Some((_, clip_id)) = clip_at_time(arrangement, click_time) {
                 let shift = ui.input(|i| i.modifiers.shift || i.modifiers.command);
                 if shift {
-                    // Toggle in multi-selection
                     if let Some(idx) = state.selected.iter().position(|&id| id == clip_id) {
                         state.selected.remove(idx);
                     } else {
@@ -206,14 +316,13 @@ pub fn show_timeline(
                     state.selected = vec![clip_id];
                 }
             } else {
-                // Click on empty space: set cursor, deselect
                 state.cursor_s = click_time.max(0.0);
                 state.selected.clear();
             }
         }
     }
 
-    response
+    (response, reorder)
 }
 
 /// Paint time markers along the top of the timeline.
