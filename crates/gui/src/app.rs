@@ -283,10 +283,68 @@ pub struct GlottisdaleApp {
     show_log: bool,
     /// Editor state (None = editor not open)
     editor: Option<crate::editor::EditorState>,
+    // Branding textures
+    icon_texture: egui::TextureHandle,
+    banner_texture: egui::TextureHandle,
+}
+
+fn load_texture(
+    ctx: &egui::Context,
+    name: &str,
+    bytes: &[u8],
+) -> egui::TextureHandle {
+    let img = image::load_from_memory(bytes)
+        .unwrap_or_else(|e| panic!("Failed to decode {name}: {e}"))
+        .to_rgba8();
+    let (w, h) = img.dimensions();
+    let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &img);
+    ctx.load_texture(name, color, egui::TextureOptions::LINEAR)
+}
+
+/// Build a funky rainbow-colored LayoutJob for the welcome text.
+fn welcome_text_job() -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.halign = egui::Align::Center;
+
+    let text = "WELCOM TO GLOTTISDALE";
+    let colors = [
+        egui::Color32::from_rgb(255, 87, 34),   // deep orange
+        egui::Color32::from_rgb(255, 193, 7),    // amber
+        egui::Color32::from_rgb(76, 175, 80),    // green
+        egui::Color32::from_rgb(33, 150, 243),   // blue
+        egui::Color32::from_rgb(156, 39, 176),   // purple
+        egui::Color32::from_rgb(233, 30, 99),    // pink
+        egui::Color32::from_rgb(0, 188, 212),    // cyan
+    ];
+
+    for (i, ch) in text.chars().enumerate() {
+        let color = colors[i % colors.len()];
+        job.append(
+            &ch.to_string(),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::proportional(36.0),
+                color,
+                ..Default::default()
+            },
+        );
+    }
+    job
 }
 
 impl GlottisdaleApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let icon_texture = load_texture(
+            &cc.egui_ctx,
+            "app-icon",
+            include_bytes!("../assets/icon.jpg"),
+        );
+        let banner_texture = load_texture(
+            &cc.egui_ctx,
+            "app-banner",
+            include_bytes!("../assets/banner.jpg"),
+        );
+
         Self {
             mode: PipelineMode::Collage,
             source_files: Vec::new(),
@@ -301,6 +359,8 @@ impl GlottisdaleApp {
             processing: ProcessingState::new(),
             show_log: false,
             editor: None,
+            icon_texture,
+            banner_texture,
         }
     }
 
@@ -324,7 +384,9 @@ impl eframe::App for GlottisdaleApp {
         // Top menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.label("Glottisdale");
+                let icon_size = self.icon_texture.size_vec2() * (20.0 / self.icon_texture.size_vec2().y);
+                ui.image(egui::load::SizedTexture::new(self.icon_texture.id(), icon_size));
+                ui.label(egui::RichText::new("Glottisdale").strong());
                 ui.separator();
 
                 for mode in [PipelineMode::Collage, PipelineMode::Sing, PipelineMode::Speak] {
@@ -500,7 +562,22 @@ impl eframe::App for GlottisdaleApp {
                 }
             } else {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(20.0);
+                    ui.add_space(12.0);
+
+                    // Icon
+                    let icon_size = self.icon_texture.size_vec2()
+                        * (64.0 / self.icon_texture.size_vec2().y);
+                    ui.image(egui::load::SizedTexture::new(
+                        self.icon_texture.id(),
+                        icon_size,
+                    ));
+
+                    ui.add_space(4.0);
+
+                    // Funky welcome text
+                    ui.label(welcome_text_job());
+
+                    ui.add_space(8.0);
                     ui.heading(format!("{} Workspace", self.mode.label()));
                     ui.add_space(10.0);
                 });
@@ -769,7 +846,14 @@ fn try_open_editor_from_alignment(app: &mut GlottisdaleApp) {
 fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     if app.source_files.is_empty() {
         ui.vertical_centered(|ui| {
-            ui.add_space(40.0);
+            ui.add_space(20.0);
+            let banner_size = app.banner_texture.size_vec2()
+                * (200.0 / app.banner_texture.size_vec2().y);
+            ui.image(egui::load::SizedTexture::new(
+                app.banner_texture.id(),
+                banner_size,
+            ));
+            ui.add_space(12.0);
             ui.label("Add source audio files to get started.");
             ui.label("Use the file picker on the left panel.");
         });
@@ -804,7 +888,14 @@ fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
 fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     if app.source_files.is_empty() {
         ui.vertical_centered(|ui| {
-            ui.add_space(40.0);
+            ui.add_space(20.0);
+            let banner_size = app.banner_texture.size_vec2()
+                * (200.0 / app.banner_texture.size_vec2().y);
+            ui.image(egui::load::SizedTexture::new(
+                app.banner_texture.id(),
+                banner_size,
+            ));
+            ui.add_space(12.0);
             ui.label("Add source audio files and set MIDI directory to get started.");
         });
         return;
@@ -843,7 +934,14 @@ fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
 fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     if app.source_files.is_empty() {
         ui.vertical_centered(|ui| {
-            ui.add_space(40.0);
+            ui.add_space(20.0);
+            let banner_size = app.banner_texture.size_vec2()
+                * (200.0 / app.banner_texture.size_vec2().y);
+            ui.image(egui::load::SizedTexture::new(
+                app.banner_texture.id(),
+                banner_size,
+            ));
+            ui.add_space(12.0);
             ui.label("Add source audio files to get started.");
             ui.label("Then enter target text or select a reference audio.");
         });
