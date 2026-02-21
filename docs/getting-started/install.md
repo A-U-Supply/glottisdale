@@ -1,81 +1,12 @@
 # Installation
 
-This page walks you through installing glottisdale and everything it needs. No prior terminal experience required — just follow the steps for your operating system.
-
----
-
-## Prerequisites
-
-Glottisdale needs a few things on your computer before it can run:
-
-| Tool | What it is | Why glottisdale needs it |
-|------|-----------|--------------------------|
-| **ffmpeg** | A command-line audio/video Swiss Army knife | Extracts and processes audio from your files |
-| **Whisper** | OpenAI's speech recognition model | Transcribes speech to find word timestamps |
-
-### macOS
-
-Open **Terminal** (search for it in Spotlight, or find it in Applications > Utilities).
-
-If you don't have [Homebrew](https://brew.sh) yet, install it first:
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-Then install ffmpeg:
-
-```bash
-brew install ffmpeg
-```
-
-Install Whisper (requires Python 3.11+):
-
-```bash
-pip install openai-whisper
-```
-
-> **Note:** On some systems you may need to use `pip3` instead of `pip`.
-
-### Windows
-
-1. **ffmpeg** — The easiest option is [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/), which comes with Windows 10/11. Open **PowerShell** and run:
-
-   ```powershell
-   winget install ffmpeg
-   ```
-
-   If winget is not available, download a build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/), extract it, and add the `bin` folder to your system PATH.
-
-2. **Whisper** — Install Python 3.11+ from [python.org](https://www.python.org/downloads/) (check "Add Python to PATH" during install), then:
-
-   ```powershell
-   pip install openai-whisper
-   ```
-
-3. **Verify PATH** — Open a new PowerShell window and run:
-
-   ```powershell
-   ffmpeg -version
-   whisper --help
-   ```
-
-   Both should print version information. If either says "not recognized", the tool is not on your PATH — revisit the install steps above.
-
-### Linux (Debian/Ubuntu)
-
-Open a terminal and run:
-
-```bash
-sudo apt install ffmpeg python3 python3-pip
-pip install openai-whisper
-```
-
-On other distributions, use your package manager's equivalent (e.g., `dnf install` on Fedora, `pacman -S` on Arch).
+This page walks you through installing glottisdale. No prior terminal experience required — just follow the steps for your operating system.
 
 ---
 
 ## Install glottisdale
+
+Glottisdale is fully self-contained — no external dependencies required. Just download and run.
 
 ### Pre-built binary (recommended)
 
@@ -104,33 +35,13 @@ cargo build --release
 
 The CLI binary is at `./target/release/glottisdale`. The GUI binary is at `./target/release/glottisdale-gui`.
 
-> **Linux note:** Building from source requires `libasound2-dev` for audio playback support: `sudo apt install libasound2-dev`
+> **Linux note:** Building from source requires `libasound2-dev` and `cmake`: `sudo apt install libasound2-dev cmake`
 
 ---
 
-## Optional extras
+## First run
 
-Glottisdale has three pipelines. The core install covers all of them, but some features need additional system tools.
-
-### "I just want collages"
-
-You're all set — ffmpeg and Whisper are all you need. Move on to [Verify your install](#verify-your-install).
-
-### "I want vocal MIDI mapping"
-
-The `sing` subcommand maps syllable clips onto MIDI melodies. It requires **rubberband** for pitch-shifting and time-stretching audio.
-
-- **macOS:** `brew install rubberband`
-- **Linux:** `sudo apt install rubberband-cli`
-- **Windows:** Download from the [Rubber Band Library releases](https://breakfastquay.com/rubberband/) and add to your PATH.
-
-### "I want the most accurate syllable detection"
-
-By default, glottisdale estimates syllable boundaries from Whisper's word timestamps. For more precise results, you can enable the **Bournemouth Forced Aligner (BFA)**, which uses real phoneme-level timing from the audio signal. It requires **espeak-ng**, a speech synthesis engine.
-
-- **macOS:** `brew install espeak-ng`
-- **Linux:** `sudo apt install espeak-ng`
-- **Windows:** Download from [espeak-ng releases](https://github.com/espeak-ng/espeak-ng/releases) and add to your PATH.
+On first run, glottisdale will automatically download the Whisper speech recognition model (~140 MB for the default `base` model). This only happens once — the model is cached in `~/.cache/glottisdale/models/`.
 
 ---
 
@@ -164,10 +75,10 @@ Run the test suite:
 cargo test
 ```
 
-All tests should pass. If anything fails, check that you have ffmpeg and Whisper installed (see [Prerequisites](#prerequisites) above).
+All tests should pass.
 
-On Linux, you'll also need `libasound2-dev`:
+On Linux, you'll also need system dependencies:
 
 ```bash
-sudo apt install libasound2-dev
+sudo apt install libasound2-dev cmake
 ```

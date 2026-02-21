@@ -16,7 +16,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev cmake
 
       - name: Cache cargo
         uses: actions/cache@v4

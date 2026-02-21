@@ -18,22 +18,9 @@ Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-bre
 
 ## Install
 
-### From source (Rust)
+### Pre-built binary (recommended)
 
-```bash
-# Requires Rust 1.75+ and ffmpeg
-git clone https://github.com/A-U-Supply/glottisdale.git
-cd glottisdale
-cargo build --release
-
-# CLI binary
-./target/release/glottisdale --help
-
-# GUI binary
-./target/release/glottisdale-gui
-```
-
-### Pre-built binary
+No external dependencies required. Download and run.
 
 Download from [GitHub Releases](https://github.com/A-U-Supply/glottisdale/releases):
 
@@ -49,7 +36,22 @@ curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glott
 chmod +x glottisdale glottisdale-gui && sudo mv glottisdale glottisdale-gui /usr/local/bin/
 ```
 
-Also requires ffmpeg and [Whisper](https://github.com/openai/whisper) (`pip install openai-whisper`).
+The Whisper model (~140 MB) downloads automatically on first run.
+
+### From source
+
+```bash
+# Requires Rust 1.75+
+git clone https://github.com/A-U-Supply/glottisdale.git
+cd glottisdale
+cargo build --release
+
+# CLI binary
+./target/release/glottisdale --help
+
+# GUI binary
+./target/release/glottisdale-gui
+```
 
 ## Architecture
 
@@ -63,15 +65,15 @@ Cargo workspace with three crates:
 
 | Module | Description |
 |--------|-------------|
-| `audio::io` | WAV read/write, ffmpeg extraction, resampling |
+| `audio::io` | WAV read/write, multi-format extraction via symphonia, resampling |
 | `audio::analysis` | F0 estimation, RMS, room tone, breath detection, pink noise |
-| `audio::effects` | Pitch shift, time stretch, volume, crossfade, mixing |
+| `audio::effects` | Pitch shift and time stretch via Signalsmith Stretch, volume, crossfade, mixing |
 | `audio::playback` | Real-time audio playback via rodio |
 | `language::g2p` | Grapheme-to-phoneme via embedded CMU dict |
 | `language::syllabify` | ARPABET and IPA syllabifiers |
 | `language::phonotactics` | Sonority-based syllable ordering |
-| `language::transcribe` | Whisper ASR with word timestamps |
-| `language::align` | Alignment backends (default, BFA) |
+| `language::transcribe` | Native Whisper transcription via whisper-rs with auto model download |
+| `language::align` | Alignment backend (default: Whisper + g2p) |
 | `cache` | SHA-256 file hashing, atomic writes |
 | `names` | Thematic run name generator |
 | `collage` | Syllable sampling, stretch, stutter, prosodic grouping |
@@ -200,9 +202,8 @@ Native desktop GUI. Tab-based interface with file picker, settings panels, and l
 
 ## Dependencies
 
-- **Rust 1.75+** for building
-- **ffmpeg** for audio/video extraction
-- **Whisper** CLI or model files for transcription (optional: `whisper-rs` native feature)
+- **Rust 1.75+** for building from source
+- No external runtime dependencies — all audio processing, transcription, and pitch/time manipulation is handled natively
 
 ## License
 

@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-default = []
-whisper-native = ["whisper-rs"]
+default = ["whisper-native"]
+whisper-native = ["whisper-rs", "reqwest", "tempfile"]
 
 [dependencies]
 anyhow.workspace = true
@@ -21,3 +21,7 @@ rubato = "0.16"
 rodio = "0.20"
 midly = "0.5"
 whisper-rs = { version = "0.13", optional = true }
+reqwest = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+symphonia.workspace = true
+ssstretch.workspace = true

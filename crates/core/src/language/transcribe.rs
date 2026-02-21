@@ -1,8 +1,6 @@
 //! Whisper ASR transcription with word-level timestamps.
 //!
-//! Supports two backends:
-//! - Native: via `whisper-rs` (requires `whisper-native` feature)
-//! - CLI: via `whisper` command-line tool (subprocess)
+//! Uses native whisper-rs bindings with automatic model download.
 
 use std::path::Path;
 
@@ -12,79 +10,31 @@ use crate::types::{TranscriptionResult, WordTimestamp};
 
 /// Transcribe audio and return word-level timestamps.
 ///
-/// Tries native whisper-rs first (if compiled with `whisper-native` feature),
-/// then falls back to the whisper CLI subprocess.
+/// Uses native whisper-rs bindings. The whisper model is automatically
+/// downloaded on first use if not found locally.
 pub fn transcribe(
     audio_path: &Path,
     model_name: &str,
     language: &str,
-    _model_dir: Option<&Path>,
+    model_dir: Option<&Path>,
 ) -> Result<TranscriptionResult> {
     #[cfg(feature = "whisper-native")]
     {
-        match transcribe_native(audio_path, model_name, language, _model_dir) {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                log::warn!("Native whisper failed ({}), trying CLI fallback", e);
-            }
-        }
+        return transcribe_native(audio_path, model_name, language, model_dir);
     }
 
-    transcribe_cli(audio_path, model_name, language)
-}
-
-/// Transcribe using the whisper CLI (subprocess).
-///
-/// Expects the `whisper` command to be available on PATH.
-/// Uses JSON output format for structured results.
-fn transcribe_cli(
-    audio_path: &Path,
-    model_name: &str,
-    language: &str,
-) -> Result<TranscriptionResult> {
-    use std::process::Command;
-
-    let output_dir = std::env::temp_dir().join("glottisdale_whisper");
-    std::fs::create_dir_all(&output_dir)?;
-
-    let result = Command::new("whisper")
-        .args([
-            audio_path.to_str().unwrap(),
-            "--model", model_name,
-            "--language", language,
-            "--word_timestamps", "True",
-            "--output_format", "json",
-            "--output_dir", output_dir.to_str().unwrap(),
-        ])
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            // Parse the JSON output file
-            let stem = audio_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("audio");
-            let json_path = output_dir.join(format!("{}.json", stem));
-
-            let json_str = std::fs::read_to_string(&json_path)
-                .with_context(|| format!("Failed to read whisper output: {}", json_path.display()))?;
-
-            parse_whisper_json(&json_str, language)
-        }
-        Ok(output) => {
-            bail!(
-                "whisper CLI failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        Err(e) => {
-            bail!("whisper CLI not found: {}", e);
-        }
+    #[cfg(not(feature = "whisper-native"))]
+    {
+        let _ = (audio_path, model_name, language, model_dir);
+        bail!(
+            "Whisper transcription requires the 'whisper-native' feature. \
+             Build with: cargo build --features whisper-native"
+        );
     }
 }
 
 /// Parse Whisper's JSON output into our TranscriptionResult.
+#[cfg(test)]
 fn parse_whisper_json(json_str: &str, default_language: &str) -> Result<TranscriptionResult> {
     let value: serde_json::Value =
         serde_json::from_str(json_str).context("Failed to parse whisper JSON")?;
@@ -206,6 +156,15 @@ fn transcribe_native(
     })
 }
 
+const HF_MODEL_BASE: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+
+/// Construct the download URL for a whisper GGML model.
+#[cfg(feature = "whisper-native")]
+fn model_download_url(model_name: &str) -> String {
+    format!("{}/ggml-{}.bin", HF_MODEL_BASE, model_name)
+}
+
 /// Find a whisper model file, downloading if necessary.
 #[cfg(feature = "whisper-native")]
 fn find_model(model_name: &str, model_dir: Option<&Path>) -> Result<std::path::PathBuf> {
@@ -226,11 +185,88 @@ fn find_model(model_name: &str, model_dir: Option<&Path>) -> Result<std::path::P
         return Ok(path);
     }
 
-    bail!(
-        "Whisper model '{}' not found. Download it to {:?} or specify --model-dir",
-        model_name,
-        cache_dir
+    // Download the model
+    log::info!(
+        "Whisper model '{}' not found locally, downloading...",
+        model_name
     );
+    download_model(model_name, &cache_dir)
+}
+
+/// Download a whisper GGML model from Hugging Face.
+#[cfg(feature = "whisper-native")]
+fn download_model(model_name: &str, dest_dir: &Path) -> Result<std::path::PathBuf> {
+    use std::io::{Read, Write};
+
+    let url = model_download_url(model_name);
+    let filename = format!("ggml-{}.bin", model_name);
+    let dest_path = dest_dir.join(&filename);
+
+    std::fs::create_dir_all(dest_dir)
+        .with_context(|| format!("Failed to create model directory: {}", dest_dir.display()))?;
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(1800))
+        .build()
+        .context("Failed to build HTTP client")?;
+
+    log::info!("Downloading {} ...", url);
+
+    let mut response = client.get(&url).send().context("Failed to download model")?;
+
+    if !response.status().is_success() {
+        bail!("Download failed: HTTP {} for {}", response.status(), url);
+    }
+
+    let total_size = response.content_length();
+    if let Some(size) = total_size {
+        log::info!("Model size: {:.1} MB", size as f64 / 1_048_576.0);
+    }
+
+    // Write to temp file in same directory for atomic rename
+    let mut tmp_file = tempfile::NamedTempFile::new_in(dest_dir)
+        .context("Failed to create temp file")?;
+
+    let mut downloaded: u64 = 0;
+    let mut buf = [0u8; 64 * 1024];
+    let mut last_log_pct = 0u64;
+
+    loop {
+        let n = response.read(&mut buf).context("Error reading download")?;
+        if n == 0 {
+            break;
+        }
+        tmp_file.write_all(&buf[..n]).context("Error writing model")?;
+        downloaded += n as u64;
+
+        // Log progress every 10%
+        if let Some(total) = total_size {
+            let pct = downloaded * 100 / total;
+            if pct >= last_log_pct + 10 {
+                log::info!("Download progress: {}%", pct);
+                last_log_pct = pct;
+            }
+        }
+    }
+
+    // Verify download size
+    if let Some(expected) = total_size {
+        if downloaded != expected {
+            bail!(
+                "Incomplete download: got {} bytes, expected {}",
+                downloaded,
+                expected
+            );
+        }
+    }
+
+    // Atomic rename
+    tmp_file.persist(&dest_path).map_err(|e| {
+        anyhow::anyhow!("Failed to save model to {}: {}", dest_path.display(), e)
+    })?;
+
+    log::info!("Model saved to {}", dest_path.display());
+    Ok(dest_path)
 }
 
 #[cfg(feature = "whisper-native")]
@@ -280,6 +316,35 @@ mod tests {
         let result = parse_whisper_json(json, "en").unwrap();
         assert!(result.text.is_empty());
         assert!(result.words.is_empty());
+    }
+
+    #[cfg(feature = "whisper-native")]
+    #[test]
+    fn test_find_model_constructs_url() {
+        // Test that the model URL is correctly constructed
+        let url = model_download_url("base");
+        assert_eq!(
+            url,
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+        );
+    }
+
+    #[cfg(feature = "whisper-native")]
+    #[test]
+    fn test_find_model_uses_cache_dir() {
+        let dir = std::env::temp_dir().join("glottisdale_test_model_cache");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Create a fake model file
+        let model_path = dir.join("ggml-tiny.bin");
+        std::fs::write(&model_path, b"fake model data").unwrap();
+
+        // find_model should return the cached path without downloading
+        let result = find_model("tiny", Some(&dir));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), model_path);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

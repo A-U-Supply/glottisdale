@@ -573,17 +573,7 @@ pub fn process(
                             config.stretch_config.stretch_factor,
                             &mut rng,
                         );
-                        match time_stretch(&all_syl_clips[i].samples, sr, factor) {
-                            Ok(stretched) => all_syl_clips[i].samples = stretched,
-                            Err(_) => {
-                                let stretched = crate::audio::effects::time_stretch_simple(
-                                    &all_syl_clips[i].samples,
-                                    sr,
-                                    factor,
-                                );
-                                all_syl_clips[i].samples = stretched;
-                            }
-                        }
+                        all_syl_clips[i].samples = time_stretch(&all_syl_clips[i].samples, sr, factor)?;
                     }
                 }
                 global_syl_idx += 1;
@@ -643,12 +633,7 @@ pub fn process(
             let clip_dur = samples.len() as f64 / sr as f64;
             if clip_dur >= 0.08 && rng.gen::<f64>() < word_stretch_prob {
                 let factor = resolve_stretch_factor(config.stretch_config.stretch_factor, &mut rng);
-                match time_stretch(samples, sr, factor) {
-                    Ok(stretched) => *samples = stretched,
-                    Err(_) => {
-                        *samples = crate::audio::effects::time_stretch_simple(samples, sr, factor);
-                    }
-                }
+                *samples = time_stretch(samples, sr, factor)?;
                 // Re-write the word file
                 if let Err(e) = write_wav(&clips[i].output_path, samples, sr) {
                     log::debug!("Failed to rewrite stretched word: {}", e);
@@ -777,13 +762,7 @@ pub fn process(
     // --- Global speed ---
     if let Some(speed) = config.speed {
         let speed_factor = 1.0 / speed;
-        match time_stretch(&output_samples, sr, speed_factor) {
-            Ok(stretched) => output_samples = stretched,
-            Err(_) => {
-                output_samples =
-                    crate::audio::effects::time_stretch_simple(&output_samples, sr, speed_factor);
-            }
-        }
+        output_samples = time_stretch(&output_samples, sr, speed_factor)?;
     }
 
     // --- Mix pink noise bed ---

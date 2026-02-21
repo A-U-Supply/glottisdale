@@ -243,12 +243,7 @@ pub fn render_mapping(
         // Apply time stretch
         if (time_ratio - 1.0).abs() > 0.05 {
             let stretch_factor = 1.0 / time_ratio;
-            match time_stretch(&part, syl.sr, stretch_factor) {
-                Ok(stretched) => part = stretched,
-                Err(_) => {
-                    part = crate::audio::effects::time_stretch_simple(&part, syl.sr, stretch_factor);
-                }
-            }
+            part = time_stretch(&part, syl.sr, stretch_factor).ok()?;
         }
 
         // Apply vibrato if flagged
