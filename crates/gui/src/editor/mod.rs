@@ -16,6 +16,16 @@ use glottisdale_core::editor::{
 
 use self::timeline::TimelineState;
 
+/// Action from the context menu to apply after rendering.
+enum ContextAction {
+    Stutter(ClipId, usize),
+    Stretch(ClipId, f64),
+    Pitch(ClipId, f64),
+    Duplicate(ClipId),
+    Delete(ClipId),
+    ClearEffects(ClipId),
+}
+
 /// Full editor state.
 pub struct EditorState {
     pub arrangement: Arrangement,
@@ -158,9 +168,137 @@ impl EditorState {
     }
 }
 
+/// Apply a context menu action to the editor state.
+fn apply_context_action(state: &mut EditorState, action: ContextAction) {
+    match action {
+        ContextAction::Stutter(clip_id, count) => {
+            apply_effect_to_clip(state, clip_id, ClipEffect::Stutter { count });
+        }
+        ContextAction::Stretch(clip_id, factor) => {
+            apply_effect_to_clip(state, clip_id, ClipEffect::TimeStretch { factor });
+        }
+        ContextAction::Pitch(clip_id, semitones) => {
+            apply_effect_to_clip(state, clip_id, ClipEffect::PitchShift { semitones });
+        }
+        ContextAction::Duplicate(clip_id) => {
+            if let Some(tc_idx) = state
+                .arrangement
+                .timeline
+                .iter()
+                .position(|tc| tc.id == clip_id)
+            {
+                let tc = &state.arrangement.timeline[tc_idx];
+                let new_tc = TimelineClip {
+                    id: uuid::Uuid::new_v4(),
+                    source_clip_id: tc.source_clip_id,
+                    position_s: 0.0,
+                    effects: tc.effects.clone(),
+                    effective_duration_s: tc.effective_duration_s,
+                };
+                state.arrangement.timeline.insert(tc_idx + 1, new_tc);
+                state.arrangement.relayout(0.0);
+            }
+        }
+        ContextAction::Delete(clip_id) => {
+            state.arrangement.timeline.retain(|tc| tc.id != clip_id);
+            state.timeline.selected.retain(|&id| id != clip_id);
+            state.arrangement.relayout(0.0);
+        }
+        ContextAction::ClearEffects(clip_id) => {
+            for tc in &mut state.arrangement.timeline {
+                if tc.id == clip_id {
+                    tc.effects.clear();
+                    if let Some(source) = state
+                        .arrangement
+                        .bank
+                        .iter()
+                        .find(|c| c.id == tc.source_clip_id)
+                    {
+                        tc.effective_duration_s = source.duration_s();
+                    }
+                }
+            }
+            state.arrangement.relayout(0.0);
+        }
+    }
+}
+
+/// Apply a single effect to a specific clip by ID.
+fn apply_effect_to_clip(state: &mut EditorState, clip_id: ClipId, effect: ClipEffect) {
+    for tc in &mut state.arrangement.timeline {
+        if tc.id == clip_id {
+            tc.effects.push(effect);
+            if let Some(source) = state
+                .arrangement
+                .bank
+                .iter()
+                .find(|c| c.id == tc.source_clip_id)
+            {
+                tc.effective_duration_s =
+                    compute_effective_duration(source.duration_s(), &tc.effects);
+            }
+            break;
+        }
+    }
+    state.arrangement.relayout(0.0);
+}
+
+/// Render context menu items for a clip.
+fn show_clip_context_menu(ui: &mut egui::Ui, clip_id: ClipId, action: &mut Option<ContextAction>) {
+    ui.menu_button("Stutter", |ui| {
+        for count in 2..=8 {
+            if ui.button(format!("x{}", count)).clicked() {
+                *action = Some(ContextAction::Stutter(clip_id, count));
+                ui.close_menu();
+            }
+        }
+    });
+
+    ui.menu_button("Time Stretch", |ui| {
+        for &factor in &[0.5, 0.75, 1.5, 2.0, 3.0, 4.0] {
+            if ui.button(format!("{:.2}x", factor)).clicked() {
+                *action = Some(ContextAction::Stretch(clip_id, factor));
+                ui.close_menu();
+            }
+        }
+    });
+
+    ui.menu_button("Pitch Shift", |ui| {
+        for &semitones in &[-12.0, -6.0, -3.0, -1.0, 1.0, 3.0, 6.0, 12.0] {
+            let label = if semitones > 0.0 {
+                format!("+{:.0} st", semitones)
+            } else {
+                format!("{:.0} st", semitones)
+            };
+            if ui.button(label).clicked() {
+                *action = Some(ContextAction::Pitch(clip_id, semitones));
+                ui.close_menu();
+            }
+        }
+    });
+
+    ui.separator();
+
+    if ui.button("Duplicate").clicked() {
+        *action = Some(ContextAction::Duplicate(clip_id));
+        ui.close_menu();
+    }
+
+    if ui.button("Delete").clicked() {
+        *action = Some(ContextAction::Delete(clip_id));
+        ui.close_menu();
+    }
+
+    if ui.button("Clear Effects").clicked() {
+        *action = Some(ContextAction::ClearEffects(clip_id));
+        ui.close_menu();
+    }
+}
+
 /// Main entry point: render the full editor UI.
 pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Context) -> bool {
     let mut close = false;
+    let mut context_action: Option<ContextAction> = None;
 
     // Update cursor from playback engine
     state.timeline.cursor_s = state.playback.state.get_cursor();
@@ -263,16 +401,40 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
             show_bank_panel(ui, state);
         });
 
+    // Timeline in central panel
+    let mut reorder: Option<(usize, usize)> = None;
     egui::CentralPanel::default().show_inside(ui, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            timeline::show_timeline(
+            let (response, timeline_reorder) = timeline::show_timeline(
                 ui,
                 &state.arrangement,
                 &mut state.timeline,
                 &state.source_indices,
             );
+            reorder = timeline_reorder;
+
+            // Context menu on right-click
+            let menu_clip = state.timeline.context_menu_clip;
+            response.context_menu(|ui| {
+                if let Some(clip_id) = menu_clip {
+                    show_clip_context_menu(ui, clip_id, &mut context_action);
+                }
+            });
         });
     });
+
+    // Apply reorder from drag-to-reorder
+    if let Some((from, to)) = reorder {
+        let clip = state.arrangement.timeline.remove(from);
+        let insert_at = if to > from { to - 1 } else { to };
+        state.arrangement.timeline.insert(insert_at, clip);
+        state.arrangement.relayout(0.0);
+    }
+
+    // Apply context menu action
+    if let Some(action) = context_action {
+        apply_context_action(state, action);
+    }
 
     close
 }
