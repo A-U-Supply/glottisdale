@@ -25,3 +25,4 @@ reqwest = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 symphonia.workspace = true
 ssstretch.workspace = true
+uuid.workspace = true
