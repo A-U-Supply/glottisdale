@@ -38,13 +38,15 @@ cargo build --release
 Download from [GitHub Releases](https://github.com/A-U-Supply/glottisdale/releases):
 
 ```bash
-# Linux
+# Linux (CLI + GUI)
 curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-linux-amd64 -o glottisdale
-chmod +x glottisdale && sudo mv glottisdale /usr/local/bin/
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-gui-linux-amd64 -o glottisdale-gui
+chmod +x glottisdale glottisdale-gui && sudo mv glottisdale glottisdale-gui /usr/local/bin/
 
-# macOS (Apple Silicon)
+# macOS (Apple Silicon, CLI + GUI)
 curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-darwin-arm64 -o glottisdale
-chmod +x glottisdale && sudo mv glottisdale /usr/local/bin/
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-gui-darwin-arm64 -o glottisdale-gui
+chmod +x glottisdale glottisdale-gui && sudo mv glottisdale glottisdale-gui /usr/local/bin/
 ```
 
 Also requires ffmpeg and [Whisper](https://github.com/openai/whisper) (`pip install openai-whisper`).

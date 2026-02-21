@@ -81,14 +81,15 @@ On other distributions, use your package manager's equivalent (e.g., `dnf instal
 
 Download the latest release for your platform from [GitHub Releases](https://github.com/A-U-Supply/glottisdale/releases):
 
-- **Linux (x86_64):** `glottisdale-linux-amd64`
-- **macOS (Apple Silicon):** `glottisdale-darwin-arm64`
+- **Linux (x86_64):** `glottisdale-linux-amd64` + `glottisdale-gui-linux-amd64`
+- **macOS (Apple Silicon):** `glottisdale-darwin-arm64` + `glottisdale-gui-darwin-arm64`
 
-Make it executable and move it somewhere on your PATH:
+Make them executable and move them somewhere on your PATH:
 
 ```bash
-chmod +x glottisdale-*
+chmod +x glottisdale-* glottisdale-gui-*
 sudo mv glottisdale-* /usr/local/bin/glottisdale
+sudo mv glottisdale-gui-* /usr/local/bin/glottisdale-gui
 ```
 
 ### From source

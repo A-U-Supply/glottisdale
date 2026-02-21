@@ -30,22 +30,33 @@ jobs:
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg libasound2-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libasound2-dev \
+            libxkbcommon-dev libgtk-3-dev
 
-      - name: Build release binary
+      - name: Build release binaries
         run: cargo build --release
 
-      - name: Package CLI binary
+      - name: Package binaries
         run: |
           mkdir -p dist
           cp target/release/glottisdale dist/glottisdale-${{ matrix.binary_suffix }}
+          cp target/release/glottisdale-gui dist/glottisdale-gui-${{ matrix.binary_suffix }}
           chmod +x dist/glottisdale-${{ matrix.binary_suffix }}
+          chmod +x dist/glottisdale-gui-${{ matrix.binary_suffix }}
 
-      - name: Upload artifact
+      - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
           name: glottisdale-${{ matrix.binary_suffix }}
           path: dist/glottisdale-${{ matrix.binary_suffix }}
+
+      - name: Upload GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glottisdale-gui-${{ matrix.binary_suffix }}
+          path: dist/glottisdale-gui-${{ matrix.binary_suffix }}
 
   release:
     needs: build
@@ -60,5 +71,5 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*/glottisdale-*
+          files: artifacts/*/glottisdale*
           generate_release_notes: true
