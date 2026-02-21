@@ -46,6 +46,92 @@ jobs:
           chmod +x dist/glottisdale-${{ matrix.binary_suffix }}
           chmod +x dist/glottisdale-gui-${{ matrix.binary_suffix }}
 
+      - name: Create macOS .app bundle and DMG
+        if: runner.os == 'macOS'
+        run: |
+          APP_NAME="Glottisdale"
+          APP_DIR="dist/${APP_NAME}.app"
+          DMG_NAME="Glottisdale-darwin-arm64.dmg"
+
+          # Create .app bundle structure
+          mkdir -p "${APP_DIR}/Contents/MacOS"
+          mkdir -p "${APP_DIR}/Contents/Resources"
+
+          # Copy binaries into .app
+          cp target/release/glottisdale-gui "${APP_DIR}/Contents/MacOS/glottisdale-gui"
+          cp target/release/glottisdale "${APP_DIR}/Contents/MacOS/glottisdale"
+          chmod +x "${APP_DIR}/Contents/MacOS/glottisdale-gui"
+          chmod +x "${APP_DIR}/Contents/MacOS/glottisdale"
+
+          # Create Info.plist
+          VERSION="${GITHUB_REF_NAME#v}"
+          cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleDisplayName</key>
+            <string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.ausupply.glottisdale</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleExecutable</key>
+            <string>glottisdale-gui</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleIconFile</key>
+            <string>icon</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+          </dict>
+          </plist>
+          PLIST
+
+          # Convert icon to .icns if source icon exists
+          # iconutil requires RGBA PNGs; source may be grayscale, so use
+          # Python/Pillow (pre-installed on macOS runners) for conversion
+          if [ -f crates/gui/assets/icon.jpg ]; then
+            ICONSET_DIR=$(mktemp -d)/icon.iconset
+            mkdir -p "$ICONSET_DIR"
+            python3 -c "
+          from PIL import Image
+          import sys, os
+          img = Image.open('crates/gui/assets/icon.jpg').convert('RGBA')
+          iconset = '$ICONSET_DIR'
+          sizes = {
+              'icon_16x16.png': 16, 'icon_16x16@2x.png': 32,
+              'icon_32x32.png': 32, 'icon_32x32@2x.png': 64,
+              'icon_128x128.png': 128, 'icon_128x128@2x.png': 256,
+              'icon_256x256.png': 256, 'icon_256x256@2x.png': 512,
+              'icon_512x512.png': 512, 'icon_512x512@2x.png': 1024,
+          }
+          for name, px in sizes.items():
+              img.resize((px, px), Image.LANCZOS).save(os.path.join(iconset, name))
+          " || true
+            iconutil -c icns "$ICONSET_DIR" -o "${APP_DIR}/Contents/Resources/icon.icns" 2>/dev/null || true
+          fi
+
+          # Create DMG
+          mkdir -p dist/dmg-staging
+          cp -R "${APP_DIR}" dist/dmg-staging/
+          cp target/release/glottisdale dist/dmg-staging/glottisdale
+          chmod +x dist/dmg-staging/glottisdale
+
+          # Add symlink to /Applications for drag-install
+          ln -s /Applications dist/dmg-staging/Applications
+
+          hdiutil create -volname "${APP_NAME}" \
+            -srcfolder dist/dmg-staging \
+            -ov -format UDZO \
+            "dist/${DMG_NAME}"
+
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
         with:
@@ -57,6 +143,13 @@ jobs:
         with:
           name: glottisdale-gui-${{ matrix.binary_suffix }}
           path: dist/glottisdale-gui-${{ matrix.binary_suffix }}
+
+      - name: Upload DMG artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glottisdale-darwin-arm64-dmg
+          path: dist/Glottisdale-darwin-arm64.dmg
 
   release:
     needs: build
@@ -71,5 +164,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*/glottisdale*
+          files: |
+            artifacts/*/glottisdale*
+            artifacts/*/Glottisdale*
           generate_release_notes: true
