@@ -1,8 +1,6 @@
 //! Whisper ASR transcription with word-level timestamps.
 //!
-//! Supports two backends:
-//! - Native: via `whisper-rs` (requires `whisper-native` feature)
-//! - CLI: via `whisper` command-line tool (subprocess)
+//! Uses native whisper-rs bindings with automatic model download.
 
 use std::path::Path;
 
@@ -12,79 +10,31 @@ use crate::types::{TranscriptionResult, WordTimestamp};
 
 /// Transcribe audio and return word-level timestamps.
 ///
-/// Tries native whisper-rs first (if compiled with `whisper-native` feature),
-/// then falls back to the whisper CLI subprocess.
+/// Uses native whisper-rs bindings. The whisper model is automatically
+/// downloaded on first use if not found locally.
 pub fn transcribe(
     audio_path: &Path,
     model_name: &str,
     language: &str,
-    _model_dir: Option<&Path>,
+    model_dir: Option<&Path>,
 ) -> Result<TranscriptionResult> {
     #[cfg(feature = "whisper-native")]
     {
-        match transcribe_native(audio_path, model_name, language, _model_dir) {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                log::warn!("Native whisper failed ({}), trying CLI fallback", e);
-            }
-        }
+        return transcribe_native(audio_path, model_name, language, model_dir);
     }
 
-    transcribe_cli(audio_path, model_name, language)
-}
-
-/// Transcribe using the whisper CLI (subprocess).
-///
-/// Expects the `whisper` command to be available on PATH.
-/// Uses JSON output format for structured results.
-fn transcribe_cli(
-    audio_path: &Path,
-    model_name: &str,
-    language: &str,
-) -> Result<TranscriptionResult> {
-    use std::process::Command;
-
-    let output_dir = std::env::temp_dir().join("glottisdale_whisper");
-    std::fs::create_dir_all(&output_dir)?;
-
-    let result = Command::new("whisper")
-        .args([
-            audio_path.to_str().unwrap(),
-            "--model", model_name,
-            "--language", language,
-            "--word_timestamps", "True",
-            "--output_format", "json",
-            "--output_dir", output_dir.to_str().unwrap(),
-        ])
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            // Parse the JSON output file
-            let stem = audio_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("audio");
-            let json_path = output_dir.join(format!("{}.json", stem));
-
-            let json_str = std::fs::read_to_string(&json_path)
-                .with_context(|| format!("Failed to read whisper output: {}", json_path.display()))?;
-
-            parse_whisper_json(&json_str, language)
-        }
-        Ok(output) => {
-            bail!(
-                "whisper CLI failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        Err(e) => {
-            bail!("whisper CLI not found: {}", e);
-        }
+    #[cfg(not(feature = "whisper-native"))]
+    {
+        let _ = (audio_path, model_name, language, model_dir);
+        bail!(
+            "Whisper transcription requires the 'whisper-native' feature. \
+             Build with: cargo build --features whisper-native"
+        );
     }
 }
 
 /// Parse Whisper's JSON output into our TranscriptionResult.
+#[cfg(test)]
 fn parse_whisper_json(json_str: &str, default_language: &str) -> Result<TranscriptionResult> {
     let value: serde_json::Value =
         serde_json::from_str(json_str).context("Failed to parse whisper JSON")?;
