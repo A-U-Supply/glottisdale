@@ -6,76 +6,6 @@ Quick fixes for common issues. Each entry follows a **Problem / Cause / Fix** fo
 
 ## Installation issues
 
-### `ffmpeg: command not found`
-
-**Cause:** ffmpeg is not installed, or it is installed but not on your system PATH.
-
-**Fix:**
-
-- **macOS:** `brew install ffmpeg`
-- **Linux:** `sudo apt install ffmpeg`
-- **Windows:** `winget install ffmpeg` in PowerShell, or download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and add the `bin` folder to your PATH.
-
-After installing, open a new terminal window and run `ffmpeg -version` to confirm.
-
----
-
-### `whisper: command not found`
-
-**Cause:** OpenAI Whisper is not installed, or Python's scripts directory is not on your PATH.
-
-**Fix:** Install Whisper with pip:
-
-```bash
-pip install openai-whisper
-```
-
-If `whisper --help` still fails after install, your Python scripts directory may not be on your PATH. The typical location is `~/.local/bin`. Add it to your shell config:
-
-```bash
-# bash / zsh
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-```fish
-# fish
-fish_add_path ~/.local/bin
-```
-
-Then open a new terminal window.
-
----
-
-### `espeak-ng` not found (BFA mode)
-
-**Cause:** The Bournemouth Forced Aligner requires espeak-ng, which is not installed on your system.
-
-**Fix:** Install espeak-ng:
-
-- **macOS:** `brew install espeak-ng`
-- **Linux:** `sudo apt install espeak-ng`
-- **Windows:** Download from the [espeak-ng releases](https://github.com/espeak-ng/espeak-ng/releases) and add to your PATH.
-
-If you don't need BFA, switch to the default aligner instead:
-
-```bash
-glottisdale collage input.mp4 --aligner default
-```
-
----
-
-### `rubberband` not found (sing mode)
-
-**Cause:** The `sing` subcommand uses rubberband for pitch-shifting and time-stretching, and it is not installed.
-
-**Fix:**
-
-- **macOS:** `brew install rubberband`
-- **Linux:** `sudo apt install rubberband-cli`
-- **Windows:** Download from the [Rubber Band Library releases](https://breakfastquay.com/rubberband/) and add to your PATH.
-
----
-
 ### `command not found: glottisdale`
 
 **Cause:** The glottisdale binary is not on your system PATH.
@@ -111,11 +41,25 @@ Then retry the build with `cargo build --release`.
 
 ---
 
+### Build fails with cmake error (Linux)
+
+**Cause:** Building whisper-rs and ssstretch requires cmake and a C++ compiler.
+
+**Fix:**
+
+```bash
+sudo apt install cmake build-essential
+```
+
+Then retry the build with `cargo build --release`.
+
+---
+
 ## Runtime errors
 
 ### Whisper model download hangs or fails
 
-**Cause:** Whisper needs to download its model files on first use. This can stall on slow or restricted networks.
+**Cause:** Glottisdale downloads the Whisper model from Hugging Face on first use. This can stall on slow or restricted networks.
 
 **Fix:** Try a smaller model, which downloads faster:
 
@@ -123,7 +67,9 @@ Then retry the build with `cargo build --release`.
 glottisdale collage input.mp4 --whisper-model tiny
 ```
 
-Available models from smallest to largest: `tiny`, `base`, `small`, `medium`. The default is `base`.
+Available models from smallest to largest: `tiny` (~75 MB), `base` (~140 MB), `small` (~460 MB), `medium` (~1.5 GB). The default is `base`.
+
+If the download keeps failing, you can manually download the model from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp/tree/main) and place it at `~/.cache/glottisdale/models/ggml-base.bin`.
 
 ---
 
@@ -153,15 +99,14 @@ Close other memory-heavy applications if possible.
 
 ---
 
-### Unsupported input format
+### Unsupported audio format
 
-**Cause:** ffmpeg cannot read the file. It may be corrupted, DRM-protected, or in an unusual format.
+**Cause:** The input file is in a format glottisdale cannot decode. Supported formats are WAV, MP3, and MP4/AAC.
 
 **Fix:**
 
-- Test the file directly: `ffplay input.mp4` (or `ffprobe input.mp4`). If ffmpeg itself cannot read the file, glottisdale cannot either.
-- Try converting to a standard format first: `ffmpeg -i input.weird -c:a pcm_s16le output.wav`
-- Common supported formats: WAV, MP3, MP4, FLAC, OGG, M4A.
+- Convert your file to WAV first using an audio editor or ffmpeg: `ffmpeg -i input.weird -c:a pcm_s16le output.wav`
+- Common supported formats: WAV, MP3, MP4 (AAC audio).
 
 ---
 
@@ -227,6 +172,7 @@ Glottisdale caches expensive intermediate results to speed up repeated runs. Cac
 | Audio extraction | `extract/` | 16kHz mono WAV resampled from input |
 | Whisper transcription | `whisper/` | Word-level timestamps and transcript |
 | Alignment | `align/` | Syllable/phoneme-level timestamps |
+| Models | `models/` | Downloaded Whisper GGML model files |
 
 Cache keys are derived from the SHA-256 hash of the input file, plus the Whisper model and aligner settings. A second run on the same input files skips extraction (~seconds), transcription (~5-10 min), and alignment (~1-3 min).
 
@@ -265,12 +211,9 @@ export GLOTTISDALE_CACHE_DIR=/path/to/custom/cache
 
 ### Windows
 
-- **Adding ffmpeg to PATH:** If you downloaded ffmpeg manually, extract the archive, find the `bin` folder inside, and add its full path (e.g., `C:\ffmpeg\bin`) to your system PATH via Settings > System > About > Advanced system settings > Environment Variables > Path > Edit > New.
-- **PowerShell vs Command Prompt:** Both work. PowerShell is recommended as it comes with modern Windows and supports `winget`.
 - **Long path issues:** If you see path-related errors, enable long path support: open PowerShell as Administrator and run `New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force`.
 
 ### Linux
 
-- **Debian/Ubuntu packages:** `sudo apt install ffmpeg espeak-ng rubberband-cli libasound2-dev`
-- **Fedora:** `sudo dnf install ffmpeg espeak-ng rubberband`
-- **Arch:** `sudo pacman -S ffmpeg espeak-ng rubberband`
+- **Build dependencies:** `sudo apt install libasound2-dev cmake build-essential`
+- **GUI dependencies:** `sudo apt install libxkbcommon-dev libgtk-3-dev`

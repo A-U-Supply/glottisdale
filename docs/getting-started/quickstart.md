@@ -2,7 +2,7 @@
 
 This page gets you from zero to hearing your first syllable collage in under 5 minutes. It assumes you have already [installed glottisdale](install.md).
 
-All you need is a video or audio file that contains speech. A podcast clip, a conference talk, a voice memo, a YouTube download -- anything with someone talking will work. Glottisdale handles both video and audio formats (MP4, MOV, WAV, MP3, and anything else ffmpeg understands).
+All you need is a video or audio file that contains speech. A podcast clip, a conference talk, a voice memo, a YouTube download -- anything with someone talking will work. Glottisdale handles common audio and video formats (MP4, WAV, MP3).
 
 > **Tip:** Longer source files with lots of speech give glottisdale more syllables to work with, which generally produces more interesting and varied results.
 
@@ -38,7 +38,7 @@ Output:
 
 The first line shows the run name — a unique, speech-themed identifier for this run.
 
-The first run takes a minute or two because glottisdale needs to download the Whisper speech recognition model (about 140 MB for the default `base` model). This only happens once. Subsequent runs on the same file are much faster because glottisdale caches the transcription and alignment results.
+The first run takes a minute or two because glottisdale automatically downloads the Whisper speech recognition model (about 140 MB for the default `base` model). This only happens once — the model is cached for future use. Subsequent runs on the same file are even faster because glottisdale caches the transcription and alignment results.
 
 ### Where to find the output
 
@@ -112,7 +112,7 @@ This is a great way to create collages that blend multiple speakers or conversat
 
 ## Your first MIDI vocal
 
-> **Requires rubberband.** If you haven't installed it yet, see the [vocal MIDI mapping section](install.md#i-want-vocal-midi-mapping) of the install guide.
+> No additional dependencies required — pitch shifting and time stretching are handled natively.
 
 The `sing` command takes the same speech audio, but instead of shuffling syllables randomly, it maps them onto a MIDI melody. Each syllable gets pitch-shifted and time-stretched to match a note in the melody.
 
