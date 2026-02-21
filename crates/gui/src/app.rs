@@ -314,6 +314,7 @@ impl eframe::App for GlottisdaleApp {
         // Left panel: source files
         egui::SidePanel::left("source_panel")
             .default_width(250.0)
+            .min_width(120.0)
             .resizable(true)
             .show(ctx, |ui| {
                 ui.heading("Source Files");
@@ -342,10 +343,10 @@ impl eframe::App for GlottisdaleApp {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_else(|| path.display().to_string());
-                            ui.label(&name);
                             if ui.small_button("x").clicked() {
                                 to_remove = Some(i);
                             }
+                            ui.add(egui::Label::new(&name).truncate());
                         });
                     }
                 });
@@ -846,15 +847,16 @@ fn start_speak(app: &mut GlottisdaleApp) {
 /// Run the CLI as a subprocess and capture output.
 fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
     thread::spawn(move || {
-        state.add_log(&format!("Running: {}", args.join(" ")));
-        state.set_status(ProcessingStatus::Running("Processing...".into()));
-
         // Find our own binary path and use the CLI binary
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("glottisdale"));
         let cli_exe = exe
             .parent()
             .map(|p| p.join("glottisdale"))
             .unwrap_or_else(|| PathBuf::from("glottisdale"));
+
+        state.add_log(&format!("CLI binary: {}", cli_exe.display()));
+        state.add_log(&format!("Running: {} {}", cli_exe.display(), args[1..].join(" ")));
+        state.set_status(ProcessingStatus::Running("Processing...".into()));
 
         let result = std::process::Command::new(&cli_exe)
             .args(&args[1..]) // skip "glottisdale" since it's the program name
@@ -877,13 +879,23 @@ fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
                 if output.status.success() {
                     state.set_status(ProcessingStatus::Done("Completed successfully".into()));
                 } else {
-                    let msg = stderr.lines().last().unwrap_or("Unknown error").to_string();
+                    // Find the first meaningful error line (skip empty lines and
+                    // clap's generic "For more information, try '--help'." hint)
+                    let msg = stderr
+                        .lines()
+                        .find(|l| {
+                            let trimmed = l.trim();
+                            !trimmed.is_empty() && !trimmed.starts_with("For more information")
+                        })
+                        .unwrap_or("Unknown error")
+                        .to_string();
                     state.set_status(ProcessingStatus::Error(msg));
                 }
             }
             Err(e) => {
-                state.add_log(&format!("Failed to run CLI: {}", e));
-                state.set_status(ProcessingStatus::Error(format!("Failed to run CLI: {}", e)));
+                let msg = format!("Failed to run CLI ({}): {}", cli_exe.display(), e);
+                state.add_log(&msg);
+                state.set_status(ProcessingStatus::Error(msg));
             }
         }
     });
