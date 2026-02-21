@@ -6,3 +6,4 @@ pub mod names;
 pub mod speak;
 pub mod collage;
 pub mod sing;
+pub mod editor;
