@@ -1,10 +1,14 @@
 //! Main application state and UI layout.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
+use glottisdale_core::editor::pipeline_bridge::arrangement_blank_canvas;
+use glottisdale_core::editor::EditorPipelineMode;
+use glottisdale_core::types::Syllable;
 
 // ─── Pipeline mode ───────────────────────────────────────────────
 
@@ -23,6 +27,14 @@ impl PipelineMode {
             Self::Speak => "Speak",
         }
     }
+
+    fn to_editor_mode(self) -> EditorPipelineMode {
+        match self {
+            Self::Collage => EditorPipelineMode::Collage,
+            Self::Sing => EditorPipelineMode::Sing,
+            Self::Speak => EditorPipelineMode::Speak,
+        }
+    }
 }
 
 // ─── Processing status ──────────────────────────────────────────
@@ -35,6 +47,15 @@ enum ProcessingStatus {
     Error(String),
 }
 
+// ─── Alignment data for editor ──────────────────────────────────
+
+/// Intermediate alignment data stored for the editor.
+struct AlignmentData {
+    syllables: HashMap<String, Vec<Syllable>>,
+    audio: HashMap<String, (Vec<f64>, u32)>,
+    pipeline_mode: EditorPipelineMode,
+}
+
 // ─── Shared processing state ────────────────────────────────────
 
 #[derive(Clone)]
@@ -43,6 +64,10 @@ struct ProcessingState {
     log_lines: Arc<Mutex<Vec<String>>>,
     /// Output file paths parsed from CLI stdout (e.g. "Output: path/to/file.wav")
     output_paths: Arc<Mutex<Vec<(String, PathBuf)>>>,
+    /// Alignment data from the most recent pipeline run (for editor).
+    alignment: Arc<Mutex<Option<Arc<AlignmentData>>>>,
+    /// When true, automatically open the editor on next frame.
+    auto_open_editor: Arc<Mutex<bool>>,
 }
 
 impl ProcessingState {
@@ -51,6 +76,8 @@ impl ProcessingState {
             status: Arc::new(Mutex::new(ProcessingStatus::Idle)),
             log_lines: Arc::new(Mutex::new(Vec::new())),
             output_paths: Arc::new(Mutex::new(Vec::new())),
+            alignment: Arc::new(Mutex::new(None)),
+            auto_open_editor: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -82,6 +109,34 @@ impl ProcessingState {
         *self.status.lock().unwrap() = ProcessingStatus::Idle;
         self.log_lines.lock().unwrap().clear();
         self.output_paths.lock().unwrap().clear();
+        *self.alignment.lock().unwrap() = None;
+        *self.auto_open_editor.lock().unwrap() = false;
+    }
+
+    fn store_alignment(&self, data: AlignmentData) {
+        *self.alignment.lock().unwrap() = Some(Arc::new(data));
+    }
+
+    fn get_alignment(&self) -> Option<Arc<AlignmentData>> {
+        self.alignment.lock().unwrap().clone()
+    }
+
+    fn has_alignment(&self) -> bool {
+        self.alignment.lock().unwrap().is_some()
+    }
+
+    fn set_auto_open_editor(&self) {
+        *self.auto_open_editor.lock().unwrap() = true;
+    }
+
+    fn take_auto_open_editor(&self) -> bool {
+        let mut flag = self.auto_open_editor.lock().unwrap();
+        if *flag {
+            *flag = false;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -259,6 +314,11 @@ impl eframe::App for GlottisdaleApp {
         // Request repaint while processing for status updates
         if self.is_processing() {
             ctx.request_repaint();
+        }
+
+        // Auto-open editor after alignment-only run
+        if self.editor.is_none() && self.processing.take_auto_open_editor() {
+            try_open_editor_from_alignment(self);
         }
 
         // Top menu bar
@@ -636,7 +696,9 @@ fn show_speak_settings(ui: &mut egui::Ui, s: &mut SpeakSettings) {
 // ─── Workspace panels ───────────────────────────────────────────
 
 /// Show output files with Play and Open Folder buttons. Used by all workspace panels.
-fn show_output_section(ui: &mut egui::Ui, processing: &ProcessingState) {
+/// Returns true if the "Edit Arrangement" button was clicked.
+fn show_output_section(ui: &mut egui::Ui, processing: &ProcessingState) -> bool {
+    let mut edit_clicked = false;
     match processing.get_status() {
         ProcessingStatus::Done(msg) => {
             ui.separator();
@@ -671,12 +733,36 @@ fn show_output_section(ui: &mut egui::Ui, processing: &ProcessingState) {
                     });
                 }
             }
+
+            // Edit Arrangement button (available when alignment data exists)
+            if processing.has_alignment() {
+                ui.add_space(8.0);
+                if ui.button("Edit Arrangement").clicked() {
+                    edit_clicked = true;
+                }
+            }
         }
         ProcessingStatus::Error(msg) => {
             ui.separator();
             ui.colored_label(egui::Color32::RED, &msg);
         }
         _ => {}
+    }
+    edit_clicked
+}
+
+/// Build an arrangement from stored alignment data and open the editor.
+fn try_open_editor_from_alignment(app: &mut GlottisdaleApp) {
+    if let Some(data) = app.processing.get_alignment() {
+        match arrangement_blank_canvas(&data.syllables, &data.audio, data.pipeline_mode) {
+            Ok(arrangement) => {
+                app.editor = Some(crate::editor::EditorState::new(arrangement));
+            }
+            Err(e) => {
+                log::error!("Failed to build arrangement: {}", e);
+                app.processing.add_log(&format!("Failed to open editor: {}", e));
+            }
+        }
     }
 }
 
@@ -695,6 +781,9 @@ fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
         if ui.add_enabled(can_run, egui::Button::new("Run Collage")).clicked() {
             start_collage(app);
         }
+        if ui.add_enabled(can_run, egui::Button::new("Build Bank & Edit")).clicked() {
+            start_alignment_only(app);
+        }
         if app.is_processing() {
             ui.spinner();
         }
@@ -707,7 +796,9 @@ fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
         ui.monospace(path.display().to_string());
     }
 
-    show_output_section(ui, &app.processing);
+    if show_output_section(ui, &app.processing) {
+        try_open_editor_from_alignment(app);
+    }
 }
 
 fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
@@ -732,6 +823,9 @@ fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
         if ui.add_enabled(can_run, egui::Button::new("Run Sing")).clicked() {
             start_sing(app);
         }
+        if ui.add_enabled(can_run, egui::Button::new("Build Bank & Edit")).clicked() {
+            start_alignment_only(app);
+        }
         if app.is_processing() {
             ui.spinner();
         }
@@ -741,7 +835,9 @@ fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     ui.label(format!("{} source file(s)", app.source_files.len()));
     ui.label(format!("MIDI: {}", app.sing.midi_dir));
 
-    show_output_section(ui, &app.processing);
+    if show_output_section(ui, &app.processing) {
+        try_open_editor_from_alignment(app);
+    }
 }
 
 fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
@@ -758,8 +854,12 @@ fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
 
     ui.horizontal(|ui| {
         let can_run = !app.is_processing() && !app.source_files.is_empty() && has_target;
+        let can_bank = !app.is_processing() && !app.source_files.is_empty();
         if ui.add_enabled(can_run, egui::Button::new("Run Speak")).clicked() {
             start_speak(app);
+        }
+        if ui.add_enabled(can_bank, egui::Button::new("Build Bank & Edit")).clicked() {
+            start_alignment_only(app);
         }
         if !has_target {
             ui.weak("Enter target text or reference audio in settings");
@@ -778,7 +878,9 @@ fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
         ui.label(format!("Reference: {}", app.speak.reference_path));
     }
 
-    show_output_section(ui, &app.processing);
+    if show_output_section(ui, &app.processing) {
+        try_open_editor_from_alignment(app);
+    }
 }
 
 // ─── Pipeline runners (background threads) ──────────────────────
@@ -857,6 +959,10 @@ fn start_collage(app: &mut GlottisdaleApp) {
             let total_syls: usize = source_syllables.values().map(|v| v.len()).sum();
             state.add_log(&format!("Found {} syllables", total_syls));
 
+            // Store alignment data for the editor (clone before process borrows)
+            let alignment_syllables = source_syllables.clone();
+            let alignment_audio = source_audio.clone();
+
             state.add_log("Assembling collage...");
             state.set_status(ProcessingStatus::Running("Assembling...".into()));
 
@@ -898,6 +1004,12 @@ fn start_collage(app: &mut GlottisdaleApp) {
             let result = process(&source_audio, &source_syllables, &run_dir, &config)?;
             state.add_output("Output", result.concatenated);
             state.add_log(&format!("Selected {} clips", result.clips.len()));
+
+            state.store_alignment(AlignmentData {
+                syllables: alignment_syllables,
+                audio: alignment_audio,
+                pipeline_mode: EditorPipelineMode::Collage,
+            });
 
             Ok(())
         })();
@@ -955,17 +1067,27 @@ fn start_sing(app: &mut GlottisdaleApp) {
             let aligner = get_aligner("auto", &whisper_model, "en", "cpu")?;
             let mut all_syllable_clips = Vec::new();
             let mut sample_rate = 16000u32;
+            let mut source_syllables = HashMap::new();
+            let mut source_audio_map = HashMap::new();
 
             for audio_path in &audio_paths {
+                let key = audio_path.to_string_lossy().to_string();
                 state.add_log(&format!("Aligning: {}", audio_path.file_name().unwrap().to_string_lossy()));
                 let alignment = aligner.process(audio_path, None)?;
                 let (samples, sr) = read_wav(audio_path)?;
                 sample_rate = sr;
                 let prepared = prepare_syllables(&alignment.syllables, &samples, sr, 12.0);
                 all_syllable_clips.extend(prepared);
+                source_syllables.insert(key.clone(), alignment.syllables);
+                source_audio_map.insert(key, (samples, sr));
             }
 
             state.add_log(&format!("Prepared {} syllable clips", all_syllable_clips.len()));
+            state.store_alignment(AlignmentData {
+                syllables: source_syllables,
+                audio: source_audio_map,
+                pipeline_mode: EditorPipelineMode::Sing,
+            });
             if all_syllable_clips.is_empty() {
                 anyhow::bail!("No syllables found in source audio");
             }
@@ -1065,6 +1187,7 @@ fn start_speak(app: &mut GlottisdaleApp) {
             let aligner = get_aligner(&aligner_name, &whisper_model, "en", "cpu")?;
             let mut all_bank_entries = Vec::new();
             let mut source_audio = std::collections::HashMap::new();
+            let mut source_syllables = std::collections::HashMap::new();
 
             for audio_path in &audio_paths {
                 let key = audio_path.to_string_lossy().to_string();
@@ -1073,6 +1196,7 @@ fn start_speak(app: &mut GlottisdaleApp) {
                 let entries = build_bank(&alignment.syllables, &key);
                 state.add_log(&format!("  {} syllables", entries.len()));
                 all_bank_entries.extend(entries);
+                source_syllables.insert(key.clone(), alignment.syllables);
 
                 let (samples, sr) = read_wav(audio_path)?;
                 source_audio.insert(key, (samples, sr));
@@ -1160,11 +1284,79 @@ fn start_speak(app: &mut GlottisdaleApp) {
 
             state.add_output("Output", output_path);
 
+            state.store_alignment(AlignmentData {
+                syllables: source_syllables,
+                audio: source_audio,
+                pipeline_mode: EditorPipelineMode::Speak,
+            });
+
             Ok(())
         })();
 
         match result {
             Ok(()) => state.set_status(ProcessingStatus::Done("Completed successfully".into())),
+            Err(e) => {
+                state.add_log(&format!("ERROR: {:#}", e));
+                state.set_status(ProcessingStatus::Error(format!("{}", e)));
+            }
+        }
+    });
+}
+
+/// Run alignment only and auto-open the editor when done.
+fn start_alignment_only(app: &mut GlottisdaleApp) {
+    use glottisdale_core::audio::io::read_wav;
+    use glottisdale_core::language::align::get_aligner;
+
+    let state = app.processing.clone();
+    state.clear();
+    state.set_status(ProcessingStatus::Running("Building syllable bank...".into()));
+
+    let inputs = app.source_files.clone();
+    let whisper_model = app.whisper_model.clone();
+    let aligner_name = app.aligner.clone();
+    let pipeline_mode = app.mode.to_editor_mode();
+
+    thread::spawn(move || {
+        let result: anyhow::Result<()> = (|| {
+            let work_dir = std::env::temp_dir().join("glottisdale-alignment");
+            let audio_paths = prepare_audio(&inputs, &work_dir, &state)?;
+
+            state.add_log("Aligning syllables...");
+            state.set_status(ProcessingStatus::Running("Aligning...".into()));
+            let aligner = get_aligner(&aligner_name, &whisper_model, "en", "cpu")?;
+
+            let mut source_syllables = HashMap::new();
+            let mut source_audio = HashMap::new();
+
+            for audio_path in &audio_paths {
+                let key = audio_path.to_string_lossy().to_string();
+                state.add_log(&format!(
+                    "Aligning: {}",
+                    audio_path.file_name().unwrap().to_string_lossy()
+                ));
+                let alignment = aligner.process(audio_path, None)?;
+                let (samples, sr) = read_wav(audio_path)?;
+                source_syllables.insert(key.clone(), alignment.syllables);
+                source_audio.insert(key, (samples, sr));
+            }
+
+            let total_syls: usize = source_syllables.values().map(|v| v.len()).sum();
+            state.add_log(&format!("Found {} syllables", total_syls));
+
+            state.store_alignment(AlignmentData {
+                syllables: source_syllables,
+                audio: source_audio,
+                pipeline_mode,
+            });
+
+            state.set_auto_open_editor();
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => state.set_status(ProcessingStatus::Done("Bank ready".into())),
             Err(e) => {
                 state.add_log(&format!("ERROR: {:#}", e));
                 state.set_status(ProcessingStatus::Error(format!("{}", e)));
