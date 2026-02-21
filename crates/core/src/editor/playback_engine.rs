@@ -108,12 +108,14 @@ impl PlaybackEngine {
 }
 
 fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
-    // Try to open audio output; if it fails, the thread just consumes commands
+    // Try to open audio output; if it fails, the thread just consumes commands.
+    // OutputStream must stay alive for the entire thread lifetime.
     let audio = OutputStream::try_default().ok();
-    let sink = audio
-        .as_ref()
-        .and_then(|(_, handle)| Sink::try_new(handle).ok());
+    let stream_handle = audio.as_ref().map(|(_, h)| h);
 
+    // Sink is recreated for each PlaySamples command because Sink::stop()
+    // permanently kills the sink (sets a stopped flag that prevents new sources).
+    let mut sink: Option<Sink> = None;
     let mut play_start: Option<(Instant, f64)> = None; // (wall_start, cursor_start)
 
     loop {
@@ -125,31 +127,33 @@ fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
                     sample_rate: sr,
                     start_cursor_s,
                 } => {
-                    if let Some(ref sink) = sink {
-                        sink.stop();
-                        let source = crate::audio::playback::make_f64_source(samples, sr);
-                        sink.append(source);
-                        sink.play();
-                        play_start = Some((Instant::now(), start_cursor_s));
-                        *state.is_playing.lock().unwrap() = true;
+                    if let Some(handle) = stream_handle {
+                        // Drop old sink, create a fresh one
+                        drop(sink.take());
+                        if let Ok(new_sink) = Sink::try_new(handle) {
+                            let source = crate::audio::playback::make_f64_source(samples, sr);
+                            new_sink.append(source);
+                            new_sink.play();
+                            sink = Some(new_sink);
+                            play_start = Some((Instant::now(), start_cursor_s));
+                            *state.is_playing.lock().unwrap() = true;
+                        }
                     }
                 }
                 PlaybackCommand::Pause => {
-                    if let Some(ref sink) = sink {
-                        sink.pause();
+                    if let Some(ref s) = sink {
+                        s.pause();
                         *state.is_playing.lock().unwrap() = false;
                     }
                 }
                 PlaybackCommand::Resume => {
-                    if let Some(ref sink) = sink {
-                        sink.play();
+                    if let Some(ref s) = sink {
+                        s.play();
                         *state.is_playing.lock().unwrap() = true;
                     }
                 }
                 PlaybackCommand::Stop => {
-                    if let Some(ref sink) = sink {
-                        sink.stop();
-                    }
+                    drop(sink.take());
                     play_start = None;
                     *state.is_playing.lock().unwrap() = false;
                     *state.cursor_s.lock().unwrap() = 0.0;
@@ -159,12 +163,12 @@ fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
 
         // Update cursor position
         if let Some((start_instant, start_cursor)) = play_start {
-            if let Some(ref sink) = sink {
-                if sink.empty() {
+            if let Some(ref s) = sink {
+                if s.empty() {
                     // Playback finished
                     *state.is_playing.lock().unwrap() = false;
                     play_start = None;
-                } else if !sink.is_paused() {
+                } else if !s.is_paused() {
                     let elapsed = start_instant.elapsed().as_secs_f64();
                     *state.cursor_s.lock().unwrap() = start_cursor + elapsed;
                 }

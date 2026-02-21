@@ -211,6 +211,13 @@ input.mp4 [+ --text or --reference]
 | `speak::target_text` | CMU dict-based target text to ARPABET syllable conversion with word boundary tracking |
 | `speak::matcher` | Syllable and phoneme matching against the source bank using phonetic distance with stress tie-breaking |
 | `speak::assembler` | Timing planner (text mode and reference mode) and audio assembler (cut, stretch, pitch-shift, concatenate) |
+| `editor::types` | Core editor data types: `SyllableClip`, `TimelineClip`, `Arrangement`, `ClipEffect` |
+| `editor::waveform` | Pre-computed waveform peak data for efficient rendering |
+| `editor::effects_chain` | Non-destructive effects processing (stutter, time stretch, pitch shift) |
+| `editor::render` | Arrangement-to-audio renderer and WAV export |
+| `editor::bank_builder` | Builds `SyllableClip` bank from alignment data |
+| `editor::pipeline_bridge` | Converts pipeline output to editor `Arrangement` |
+| `editor::playback_engine` | Non-blocking audio playback with cursor tracking via rodio |
 
 ### CLI (`glottisdale`)
 
@@ -218,4 +225,6 @@ Single-file binary (`main.rs`) using clap derive macros. Defines `CollageArgs`, 
 
 ### GUI (`glottisdale-gui`)
 
-Native desktop app (`main.rs` + `app.rs`) using egui/eframe. Tab-based interface with file picker, settings panels, and live log viewer. Calls core library directly for processing.
+Native desktop app using egui/eframe. Tab-based interface with file picker, settings panels, and live log viewer. Calls core library directly for processing.
+
+The GUI includes an interactive syllable editor (`editor/` module) with a waveform timeline, syllable bank panel, drag-to-reorder, right-click context menus for effects, real-time playback with cursor tracking, and WAV export. The editor can be opened after any pipeline run ("Edit Arrangement") or directly from source files ("Build Bank & Edit").

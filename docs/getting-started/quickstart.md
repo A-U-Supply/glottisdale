@@ -194,6 +194,25 @@ For the full technical breakdown of every step in the pipeline, see the [Archite
 
 ---
 
+## Interactive editor (GUI)
+
+If you are using the GUI (`glottisdale-gui`), you can open the interactive syllable editor after any pipeline finishes:
+
+1. **After a pipeline run** — click **"Edit Arrangement"** in the output section. This builds a syllable bank from the aligned source audio and opens the editor.
+2. **Blank canvas mode** — click **"Build Bank & Edit"** to run alignment only and open the editor with all syllables available but an empty timeline.
+
+In the editor:
+
+- **Add clips** from the syllable bank on the left (click to add, double-click to preview)
+- **Arrange** clips on the timeline by dragging to reorder
+- **Apply effects** by right-clicking a clip (stutter, time stretch, pitch shift, duplicate, delete)
+- **Play back** your arrangement with the Play button — the cursor tracks playback position
+- **Export** to a WAV file when you are happy with the result
+
+The editor is useful for fine-tuning collage output, building custom arrangements from scratch, or experimenting with individual syllable effects.
+
+---
+
 ## Next steps
 
 Now that you have heard what glottisdale can do with the defaults, here is where to go next:
