@@ -21,8 +21,12 @@ pub fn mix_tracks(
     midi_db: f64,
 ) -> Result<(PathBuf, PathBuf)> {
     std::fs::create_dir_all(output_dir)?;
-    let acappella_path = output_dir.join("acappella.wav");
-    let full_mix_path = output_dir.join("full_mix.wav");
+    let run_name = output_dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let acappella_path = output_dir.join(format!("{}-acappella.wav", run_name));
+    let full_mix_path = output_dir.join(format!("{}.wav", run_name));
 
     // Write a cappella
     write_wav(&acappella_path, vocal_samples, vocal_sr)?;

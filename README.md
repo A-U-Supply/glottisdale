@@ -14,7 +14,7 @@ glottisdale collage your-video.mp4
 glottisdale-gui
 ```
 
-Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-breathy-bassoon/` — `concatenated.wav` is the full collage, `clips.zip` has the individual pieces. Runs never overwrite each other.
+Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-breathy-bassoon/` — the main output WAV and clips zip are named after the run directory (e.g., `2026-02-19-breathy-bassoon.wav`). Runs never overwrite each other.
 
 ## Install
 

@@ -794,7 +794,11 @@ pub fn process(
     }
 
     // --- Write output ---
-    let concatenated_path = output_dir.join("concatenated.wav");
+    let run_name = output_dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let concatenated_path = output_dir.join(format!("{}.wav", run_name));
     write_wav(&concatenated_path, &output_samples, sr)?;
 
     // --- Write manifest ---

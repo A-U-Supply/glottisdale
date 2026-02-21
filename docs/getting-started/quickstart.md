@@ -32,8 +32,8 @@ Processed 1 source file(s)
 Transcript: hello everyone welcome to the presentation today we will be discussing...
 Selected 47 clips
 Output:
-  concatenated.wav
-  clips.zip
+  2026-02-19-breathy-bassoon.wav
+  2026-02-19-breathy-bassoon-clips.zip
 ```
 
 The first line shows the run name — a unique, speech-themed identifier for this run.
@@ -47,19 +47,19 @@ When it finishes, look inside `./glottisdale-output/`. Each run creates its own 
 ```
 glottisdale-output/
 └── 2026-02-19-breathy-bassoon/
-    ├── concatenated.wav
+    ├── 2026-02-19-breathy-bassoon.wav
     ├── clips/
     │   ├── 001_hel.wav
     │   ├── 002_lo.wav
     │   └── ...
-    ├── clips.zip
+    ├── 2026-02-19-breathy-bassoon-clips.zip
     └── manifest.json
 ```
 
 | File | What it is |
 |------|-----------|
-| `concatenated.wav` | Your finished collage -- a single audio file you can play in any media player |
-| `clips.zip` | A zip archive containing every individual syllable clip that was used, in case you want to inspect or remix them yourself |
+| `<run-name>.wav` | Your finished collage -- a single audio file you can play in any media player |
+| `<run-name>-clips.zip` | A zip archive containing every individual syllable clip that was used, in case you want to inspect or remix them yourself |
 
 Runs never overwrite each other -- every run gets a fresh directory, so you can compare results side by side. If you want a specific name instead of the auto-generated one, use `--run-name`:
 
@@ -68,7 +68,7 @@ glottisdale collage your-video.mp4 --run-name final-take
 # -> ./glottisdale-output/2026-02-19-final-take/
 ```
 
-Open `concatenated.wav` in your audio player and listen. You should hear something that sounds like speech -- the voice, the rhythm, the breathing are all familiar -- but the words are nonsense. That is the collage.
+Open the `.wav` file in your audio player and listen. You should hear something that sounds like speech -- the voice, the rhythm, the breathing are all familiar -- but the words are nonsense. That is the collage.
 
 The individual clips in `clips.zip` are named after the syllables they contain (like `hel.wav`, `lo.wav`, `ev.wav`). You can unzip them and use them as building blocks in a DAW or audio editor if you want to arrange things by hand.
 
@@ -137,12 +137,12 @@ The output lands in a unique subdirectory inside `./glottisdale-output/`, just l
 
 | File | What it is |
 |------|-----------|
-| `full_mix.wav` | The vocal track mixed with a simple synthesized MIDI backing |
-| `acappella.wav` | The vocal track on its own, without any backing |
+| `<run-name>.wav` | The vocal track mixed with a simple synthesized MIDI backing |
+| `<run-name>-acappella.wav` | The vocal track on its own, without any backing |
 
 The result sounds like a choir that learned the melody but forgot the words. The voice is recognizably human, the notes follow the tune you provided, but the lyrics are delightfully garbled nonsense syllables. Glottisdale adds subtle vibrato and chorus effects by default to give it a more organic, slightly wobbly character.
 
-Play `full_mix.wav` to hear the vocal with its MIDI backing, or `acappella.wav` if you want to drop the vocal track into your own project or DAW.
+Play the main `.wav` to hear the vocal with its MIDI backing, or the `-acappella.wav` if you want to drop the vocal track into your own project or DAW.
 
 ---
 
@@ -172,7 +172,7 @@ The output lands in a unique subdirectory inside `./glottisdale-output/`:
 
 | File | What it is |
 |------|-----------|
-| `speak.wav` | The reconstructed speech audio |
+| `<run-name>.wav` | The reconstructed speech audio |
 | `match-log.json` | Which source syllable was matched to each target syllable, with phonetic distances |
 | `syllable-bank.json` | The full index of source syllables available for matching |
 

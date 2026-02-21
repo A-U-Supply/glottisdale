@@ -126,11 +126,11 @@ normalized clips   NoteMapping list
    [8] assemble vocal timeline
            |
            v
-       acappella.wav
+       <run-name>-acappella.wav
            |           [9] sing::synthesize
            |                      |
            v                      v
-        [10] sing::mixer ----> full_mix.wav
+        [10] sing::mixer ----> <run-name>.wav
 ```
 
 ## Speak pipeline
@@ -144,7 +144,7 @@ The speak pipeline reconstructs target text using syllable fragments from source
 | 3 | **Match target syllables to source bank** -- compute articulatory feature distance between each target syllable and every bank entry, select the closest match with stress-level tie-breaking | `speak::matcher` (via `speak::phonetic_distance`) |
 | 4 | **Plan timing** -- in text mode, space syllables uniformly with word-boundary pauses; in reference mode, blend source duration with reference timing based on strictness parameter | `speak::assembler` |
 | 5 | **Assemble audio** -- cut each matched syllable from the source WAV, time-stretch if needed to match planned duration, optionally pitch-shift, then concatenate all clips with crossfade | `speak::assembler` |
-| 6 | **Write output files** -- `speak.wav` (assembled audio), `match-log.json` (per-syllable match details with distances), `syllable-bank.json` (full source bank index) | CLI runner |
+| 6 | **Write output files** -- `<run-name>.wav` (assembled audio), `match-log.json` (per-syllable match details with distances), `syllable-bank.json` (full source bank index) | CLI runner |
 
 ### Data flow
 
@@ -176,7 +176,7 @@ input.mp4 [+ --text or --reference]
 [5] speak::assembler -----> cut + stretch + concatenate
   |
   v
-speak.wav
+<run-name>.wav
 ```
 
 ## Module map
