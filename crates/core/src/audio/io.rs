@@ -148,37 +148,103 @@ pub fn resample(samples: &[f64], from_sr: u32, to_sr: u32) -> Result<Vec<f64>> {
     Ok(output.into_iter().next().unwrap_or_default())
 }
 
-/// Extract/convert audio from any format to 16kHz mono WAV using ffmpeg.
+/// Extract/convert audio from any format to 16kHz mono WAV.
 ///
-/// Works with video files, multi-channel audio, and non-WAV formats.
-/// Requires ffmpeg to be installed and available on PATH.
+/// Supports WAV, MP3, and MP4 (AAC audio track) via symphonia.
+/// No external tools required.
 pub fn extract_audio(input_path: &Path, output_path: &Path) -> Result<()> {
-    let output = std::process::Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i",
-            &input_path.display().to_string(),
-            "-vn",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-f",
-            "wav",
-            &output_path.display().to_string(),
-        ])
-        .output()
-        .with_context(|| "Failed to run ffmpeg. Is it installed?")?;
+    use symphonia::core::audio::SampleBuffer;
+    use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+    use symphonia::core::errors::Error as SymphError;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "ffmpeg failed extracting audio from {}: {}",
-            input_path.display(),
-            stderr.lines().last().unwrap_or("unknown error")
-        );
+    let file = std::fs::File::open(input_path)
+        .with_context(|| format!("Failed to open: {}", input_path.display()))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = input_path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
     }
 
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .with_context(|| format!("Unsupported format: {}", input_path.display()))?;
+
+    let mut format = probed.format;
+
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .context("No audio track found")?;
+
+    let track_id = track.id;
+    let source_sr = track.codec_params.sample_rate.unwrap_or(44100);
+    let channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(1);
+
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .context("Unsupported codec")?;
+
+    let mut all_samples: Vec<f64> = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(SymphError::IoError(ref e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(SymphError::ResetRequired) => break,
+            Err(e) => return Err(e.into()),
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                let spec = *decoded.spec();
+                let num_frames = decoded.frames();
+                let mut sample_buf = SampleBuffer::<f64>::new(
+                    num_frames as u64,
+                    spec,
+                );
+                sample_buf.copy_interleaved_ref(decoded);
+                let interleaved = sample_buf.samples();
+
+                // Convert to mono by averaging channels
+                if channels > 1 {
+                    for frame in 0..num_frames {
+                        let mut sum = 0.0;
+                        for ch in 0..channels {
+                            sum += interleaved[frame * channels + ch];
+                        }
+                        all_samples.push(sum / channels as f64);
+                    }
+                } else {
+                    all_samples.extend_from_slice(interleaved);
+                }
+            }
+            Err(SymphError::DecodeError(_)) => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    if all_samples.is_empty() {
+        anyhow::bail!("No audio decoded from {}", input_path.display());
+    }
+
+    // Resample to 16kHz if needed
+    let samples_16k = if source_sr != 16000 {
+        resample(&all_samples, source_sr, 16000)?
+    } else {
+        all_samples
+    };
+
+    write_wav(output_path, &samples_16k, 16000)?;
     Ok(())
 }
 
@@ -273,5 +339,40 @@ mod tests {
     fn test_resample_empty() {
         let result = resample(&[], 16000, 8000).unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_audio_native_wav() {
+        // Create a WAV file, then extract it via the native path
+        let dir = std::env::temp_dir().join("glottisdale_test_extract");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let input = dir.join("input.wav");
+        let output = dir.join("output.wav");
+
+        // Write a 44.1kHz stereo WAV
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&input, spec).unwrap();
+        for i in 0..44100 {
+            let sample = ((i as f64 / 44100.0 * 440.0 * std::f64::consts::TAU).sin() * 16000.0) as i16;
+            writer.write_sample(sample).unwrap(); // left
+            writer.write_sample(sample).unwrap(); // right
+        }
+        writer.finalize().unwrap();
+
+        // Extract should produce 16kHz mono WAV
+        extract_audio(&input, &output).unwrap();
+        let (samples, sr) = read_wav(&output).unwrap();
+        assert_eq!(sr, 16000);
+        // 1 second at 44.1kHz -> ~1 second at 16kHz = ~16000 samples
+        assert!(samples.len() > 14000 && samples.len() < 18000,
+            "Expected ~16000 samples, got {}", samples.len());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
