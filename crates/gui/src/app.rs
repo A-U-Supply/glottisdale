@@ -226,6 +226,8 @@ pub struct GlottisdaleApp {
     processing: ProcessingState,
     // UI state
     show_log: bool,
+    /// Editor state (None = editor not open)
+    editor: Option<crate::editor::EditorState>,
 }
 
 impl GlottisdaleApp {
@@ -243,6 +245,7 @@ impl GlottisdaleApp {
             speak: SpeakSettings::default(),
             processing: ProcessingState::new(),
             show_log: false,
+            editor: None,
         }
     }
 
@@ -429,18 +432,24 @@ impl eframe::App for GlottisdaleApp {
                 });
             });
 
-        // Central panel: main workspace
+        // Central panel: main workspace or editor
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(20.0);
-                ui.heading(format!("{} Workspace", self.mode.label()));
-                ui.add_space(10.0);
-            });
+            if let Some(ref mut editor_state) = self.editor {
+                if crate::editor::show_editor(ui, editor_state, ctx) {
+                    self.editor = None; // Close editor
+                }
+            } else {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(20.0);
+                    ui.heading(format!("{} Workspace", self.mode.label()));
+                    ui.add_space(10.0);
+                });
 
-            match self.mode {
-                PipelineMode::Collage => show_collage_workspace(ui, self),
-                PipelineMode::Sing => show_sing_workspace(ui, self),
-                PipelineMode::Speak => show_speak_workspace(ui, self),
+                match self.mode {
+                    PipelineMode::Collage => show_collage_workspace(ui, self),
+                    PipelineMode::Sing => show_sing_workspace(ui, self),
+                    PipelineMode::Speak => show_speak_workspace(ui, self),
+                }
             }
         });
     }
