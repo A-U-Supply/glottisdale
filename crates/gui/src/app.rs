@@ -774,108 +774,394 @@ fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
 
 // ─── Pipeline runners (background threads) ──────────────────────
 
-fn build_cli_args(app: &GlottisdaleApp, subcommand: &str) -> Vec<String> {
-    let mut args = vec!["glottisdale".to_string(), subcommand.to_string()];
+/// Extract audio from input files to 16kHz mono WAV in a work directory.
+fn prepare_audio(
+    inputs: &[PathBuf],
+    work_dir: &Path,
+    state: &ProcessingState,
+) -> anyhow::Result<Vec<PathBuf>> {
+    use glottisdale_core::audio::io::extract_audio;
 
-    // Source files
-    for f in &app.source_files {
-        args.push(f.display().to_string());
+    std::fs::create_dir_all(work_dir)?;
+    let mut audio_paths = Vec::new();
+    for input in inputs {
+        let stem = input
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "input".to_string());
+        let wav_path = work_dir.join(format!("{}_16k.wav", stem));
+        state.add_log(&format!("Extracting audio: {}", input.display()));
+        extract_audio(input, &wav_path)?;
+        audio_paths.push(wav_path);
     }
+    Ok(audio_paths)
+}
 
-    // Common args
-    args.extend(["--output-dir".to_string(), app.output_dir.clone()]);
-    args.extend(["--whisper-model".to_string(), app.whisper_model.clone()]);
-
-    if !app.seed.is_empty() {
-        args.extend(["--seed".to_string(), app.seed.clone()]);
-    }
-    if !app.run_name.is_empty() {
-        args.extend(["--run-name".to_string(), app.run_name.clone()]);
-    }
-
-    args
+/// Parse a seed string into Option<u64>.
+fn parse_seed(s: &str) -> Option<u64> {
+    if s.is_empty() { None } else { s.parse().ok() }
 }
 
 fn start_collage(app: &mut GlottisdaleApp) {
+    use glottisdale_core::audio::io::read_wav;
+    use glottisdale_core::collage::process::{CollageConfig, process};
+    use glottisdale_core::collage::stretch::{StretchConfig, parse_stretch_factor};
+    use glottisdale_core::language::align::get_aligner;
+    use glottisdale_core::names::create_run_dir;
+
     let state = app.processing.clone();
     state.clear();
     state.set_status(ProcessingStatus::Running("Starting collage...".into()));
 
-    let mut args = build_cli_args(app, "collage");
-    let s = &app.collage;
+    let inputs = app.source_files.clone();
+    let output_dir = PathBuf::from(&app.output_dir);
+    let seed = parse_seed(&app.seed);
+    let run_name = if app.run_name.is_empty() { None } else { Some(app.run_name.clone()) };
+    let whisper_model = app.whisper_model.clone();
+    let aligner_name = app.aligner.clone();
+    let settings = app.collage.clone();
 
-    args.extend(["--target-duration".into(), s.target_duration.to_string()]);
-    args.extend(["--syllables-per-word".into(), s.syllables_per_word.clone()]);
-    args.extend(["--crossfade".into(), s.crossfade_ms.to_string()]);
-    args.extend(["--padding".into(), s.padding_ms.to_string()]);
-    args.extend(["--words-per-phrase".into(), s.words_per_phrase.clone()]);
-    args.extend(["--phrases-per-sentence".into(), s.phrases_per_sentence.clone()]);
-    args.extend(["--phrase-pause".into(), s.phrase_pause.clone()]);
-    args.extend(["--sentence-pause".into(), s.sentence_pause.clone()]);
-    args.extend(["--word-crossfade".into(), s.word_crossfade_ms.to_string()]);
-    args.extend(["--noise-level".into(), s.noise_level_db.to_string()]);
-    if !s.room_tone { args.push("--no-room-tone".into()); }
-    if !s.pitch_normalize { args.push("--no-pitch-normalize".into()); }
-    args.extend(["--pitch-range".into(), s.pitch_range.to_string()]);
-    if !s.breaths { args.push("--no-breaths".into()); }
-    args.extend(["--breath-probability".into(), s.breath_probability.to_string()]);
-    if !s.volume_normalize { args.push("--no-volume-normalize".into()); }
-    if !s.prosodic_dynamics { args.push("--no-prosodic-dynamics".into()); }
-    args.extend(["--stretch-factor".into(), s.stretch_factor.clone()]);
-    args.extend(["--repeat-count".into(), s.repeat_count.clone()]);
-    args.extend(["--stutter-count".into(), s.stutter_count.clone()]);
-    args.extend(["--aligner".into(), app.aligner.clone()]);
+    thread::spawn(move || {
+        let result: anyhow::Result<()> = (|| {
+            let run_dir = create_run_dir(&output_dir, seed, run_name.as_deref())?;
+            let run_dir_name = run_dir.file_name().unwrap().to_string_lossy().to_string();
+            state.add_log(&format!("Run: {}", run_dir_name));
 
-    if !s.speed.is_empty() { args.extend(["--speed".into(), s.speed.clone()]); }
-    if !s.random_stretch.is_empty() { args.extend(["--random-stretch".into(), s.random_stretch.clone()]); }
-    if !s.alternating_stretch.is_empty() { args.extend(["--alternating-stretch".into(), s.alternating_stretch.clone()]); }
-    if !s.boundary_stretch.is_empty() { args.extend(["--boundary-stretch".into(), s.boundary_stretch.clone()]); }
-    if !s.word_stretch.is_empty() { args.extend(["--word-stretch".into(), s.word_stretch.clone()]); }
-    if !s.repeat_weight.is_empty() { args.extend(["--repeat-weight".into(), s.repeat_weight.clone()]); }
-    if !s.stutter.is_empty() { args.extend(["--stutter".into(), s.stutter.clone()]); }
+            let work_dir = run_dir.join("work");
+            let audio_paths = prepare_audio(&inputs, &work_dir, &state)?;
 
-    run_cli_subprocess(state, args);
+            state.add_log("Aligning syllables...");
+            state.set_status(ProcessingStatus::Running("Aligning...".into()));
+            let aligner = get_aligner(&aligner_name, &whisper_model, "en", "cpu")?;
+            let mut source_audio = std::collections::HashMap::new();
+            let mut source_syllables = std::collections::HashMap::new();
+
+            for audio_path in &audio_paths {
+                let key = audio_path.to_string_lossy().to_string();
+                state.add_log(&format!("Aligning: {}", audio_path.file_name().unwrap().to_string_lossy()));
+                let alignment = aligner.process(audio_path, None)?;
+                let (samples, sr) = read_wav(audio_path)?;
+                source_audio.insert(key.clone(), (samples, sr));
+                source_syllables.insert(key, alignment.syllables);
+            }
+
+            let total_syls: usize = source_syllables.values().map(|v| v.len()).sum();
+            state.add_log(&format!("Found {} syllables", total_syls));
+
+            state.add_log("Assembling collage...");
+            state.set_status(ProcessingStatus::Running("Assembling...".into()));
+
+            let s = &settings;
+            let config = CollageConfig {
+                syllables_per_clip: s.syllables_per_word.clone(),
+                target_duration: s.target_duration,
+                crossfade_ms: s.crossfade_ms,
+                padding_ms: s.padding_ms,
+                words_per_phrase: s.words_per_phrase.clone(),
+                phrases_per_sentence: s.phrases_per_sentence.clone(),
+                phrase_pause: s.phrase_pause.clone(),
+                sentence_pause: s.sentence_pause.clone(),
+                word_crossfade_ms: s.word_crossfade_ms,
+                seed,
+                noise_level_db: s.noise_level_db,
+                room_tone: s.room_tone,
+                pitch_normalize: s.pitch_normalize,
+                pitch_range: s.pitch_range,
+                breaths: s.breaths,
+                breath_probability: s.breath_probability,
+                volume_normalize: s.volume_normalize,
+                prosodic_dynamics: s.prosodic_dynamics,
+                speed: if s.speed.is_empty() { None } else { s.speed.parse().ok() },
+                stretch_config: StretchConfig {
+                    random_stretch: if s.random_stretch.is_empty() { None } else { s.random_stretch.parse().ok() },
+                    alternating_stretch: if s.alternating_stretch.is_empty() { None } else { s.alternating_stretch.parse().ok() },
+                    boundary_stretch: if s.boundary_stretch.is_empty() { None } else { s.boundary_stretch.parse().ok() },
+                    word_stretch: if s.word_stretch.is_empty() { None } else { s.word_stretch.parse().ok() },
+                    stretch_factor: parse_stretch_factor(&s.stretch_factor),
+                },
+                repeat_weight: if s.repeat_weight.is_empty() { None } else { s.repeat_weight.parse().ok() },
+                repeat_count: s.repeat_count.clone(),
+                repeat_style: "exact".to_string(),
+                stutter: if s.stutter.is_empty() { None } else { s.stutter.parse().ok() },
+                stutter_count: s.stutter_count.clone(),
+            };
+
+            let result = process(&source_audio, &source_syllables, &run_dir, &config)?;
+            state.add_output("Output", result.concatenated);
+            state.add_log(&format!("Selected {} clips", result.clips.len()));
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => state.set_status(ProcessingStatus::Done("Completed successfully".into())),
+            Err(e) => {
+                state.add_log(&format!("ERROR: {:#}", e));
+                state.set_status(ProcessingStatus::Error(format!("{}", e)));
+            }
+        }
+    });
 }
 
 fn start_sing(app: &mut GlottisdaleApp) {
+    use glottisdale_core::audio::io::read_wav;
+    use glottisdale_core::language::align::get_aligner;
+    use glottisdale_core::names::create_run_dir;
+    use glottisdale_core::sing::midi_parser::parse_midi;
+    use glottisdale_core::sing::syllable_prep::{prepare_syllables, median_f0};
+    use glottisdale_core::sing::vocal_mapper::{plan_note_mapping, render_vocal_track};
+    use glottisdale_core::sing::mixer::mix_tracks;
+
     let state = app.processing.clone();
     state.clear();
     state.set_status(ProcessingStatus::Running("Starting sing...".into()));
 
-    let mut args = build_cli_args(app, "sing");
-    let s = &app.sing;
+    let inputs = app.source_files.clone();
+    let output_dir = PathBuf::from(&app.output_dir);
+    let seed = parse_seed(&app.seed);
+    let run_name = if app.run_name.is_empty() { None } else { Some(app.run_name.clone()) };
+    let whisper_model = app.whisper_model.clone();
+    let settings = app.sing.clone();
 
-    args.extend(["--midi".into(), s.midi_dir.clone()]);
-    args.extend(["--target-duration".into(), s.target_duration.to_string()]);
-    if !s.vibrato { args.push("--no-vibrato".into()); }
-    if !s.chorus { args.push("--no-chorus".into()); }
-    args.extend(["--drift-range".into(), s.drift_range.to_string()]);
+    thread::spawn(move || {
+        let result: anyhow::Result<()> = (|| {
+            let midi_dir = PathBuf::from(&settings.midi_dir);
+            let melody_path = midi_dir.join("melody.mid");
+            if !melody_path.exists() {
+                anyhow::bail!("MIDI melody not found: {}", melody_path.display());
+            }
 
-    run_cli_subprocess(state, args);
+            let run_dir = create_run_dir(&output_dir, seed, run_name.as_deref())?;
+            let run_dir_name = run_dir.file_name().unwrap().to_string_lossy().to_string();
+            state.add_log(&format!("Run: {}", run_dir_name));
+
+            let work_dir = run_dir.join("work");
+            let audio_paths = prepare_audio(&inputs, &work_dir, &state)?;
+
+            state.add_log("Parsing MIDI...");
+            let track = parse_midi(&melody_path)?;
+            state.add_log(&format!("Melody: {} notes, {:.0} BPM", track.notes.len(), track.tempo));
+
+            state.set_status(ProcessingStatus::Running("Aligning...".into()));
+            let aligner = get_aligner("auto", &whisper_model, "en", "cpu")?;
+            let mut all_syllable_clips = Vec::new();
+            let mut sample_rate = 16000u32;
+
+            for audio_path in &audio_paths {
+                state.add_log(&format!("Aligning: {}", audio_path.file_name().unwrap().to_string_lossy()));
+                let alignment = aligner.process(audio_path, None)?;
+                let (samples, sr) = read_wav(audio_path)?;
+                sample_rate = sr;
+                let prepared = prepare_syllables(&alignment.syllables, &samples, sr, 12.0);
+                all_syllable_clips.extend(prepared);
+            }
+
+            state.add_log(&format!("Prepared {} syllable clips", all_syllable_clips.len()));
+            if all_syllable_clips.is_empty() {
+                anyhow::bail!("No syllables found in source audio");
+            }
+
+            let med_f0 = median_f0(&all_syllable_clips).unwrap_or(220.0);
+            state.add_log(&format!("Median F0: {:.1} Hz", med_f0));
+
+            let chorus_prob = if settings.chorus { 0.3 } else { 0.0 };
+            let mappings = plan_note_mapping(
+                &track.notes,
+                all_syllable_clips.len(),
+                seed,
+                settings.drift_range,
+                chorus_prob,
+            );
+
+            state.set_status(ProcessingStatus::Running("Rendering...".into()));
+            state.add_log("Rendering vocal track...");
+            let vocal_samples = render_vocal_track(&mappings, &all_syllable_clips, med_f0, sample_rate);
+
+            if vocal_samples.is_empty() {
+                anyhow::bail!("Vocal rendering produced no output");
+            }
+
+            // Parse backing MIDI tracks
+            let mut backing_tracks = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(&midi_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().map(|e| e == "mid" || e == "midi").unwrap_or(false)
+                        && path != melody_path
+                    {
+                        if let Ok(t) = parse_midi(&path) {
+                            backing_tracks.push(t);
+                        }
+                    }
+                }
+            }
+
+            state.add_log("Mixing tracks...");
+            let (full_mix, acappella) = mix_tracks(
+                &vocal_samples, sample_rate, &backing_tracks, &run_dir, 0.0, -12.0,
+            )?;
+
+            state.add_output("Output", full_mix);
+            state.add_output("A cappella", acappella);
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => state.set_status(ProcessingStatus::Done("Completed successfully".into())),
+            Err(e) => {
+                state.add_log(&format!("ERROR: {:#}", e));
+                state.set_status(ProcessingStatus::Error(format!("{}", e)));
+            }
+        }
+    });
 }
 
 fn start_speak(app: &mut GlottisdaleApp) {
+    use glottisdale_core::audio::io::{extract_audio, read_wav};
+    use glottisdale_core::language::align::get_aligner;
+    use glottisdale_core::names::create_run_dir;
+    use glottisdale_core::speak::syllable_bank::build_bank;
+    use glottisdale_core::speak::target_text::{text_to_syllables, word_boundaries_from_syllables};
+    use glottisdale_core::speak::matcher::{match_syllables, match_phonemes};
+    use glottisdale_core::speak::assembler::{plan_timing, assemble};
+
     let state = app.processing.clone();
     state.clear();
     state.set_status(ProcessingStatus::Running("Starting speak...".into()));
 
-    let mut args = build_cli_args(app, "speak");
-    let s = &app.speak;
+    let inputs = app.source_files.clone();
+    let output_dir = PathBuf::from(&app.output_dir);
+    let seed = parse_seed(&app.seed);
+    let run_name = if app.run_name.is_empty() { None } else { Some(app.run_name.clone()) };
+    let whisper_model = app.whisper_model.clone();
+    let aligner_name = app.aligner.clone();
+    let settings = app.speak.clone();
 
-    if !s.target_text.is_empty() {
-        args.extend(["--text".into(), s.target_text.clone()]);
-    }
-    if !s.reference_path.is_empty() {
-        args.extend(["--reference".into(), s.reference_path.clone()]);
-    }
-    args.extend(["--match-unit".into(), s.match_unit.clone()]);
-    if !s.pitch_correct { args.push("--no-pitch-correct".into()); }
-    args.extend(["--timing-strictness".into(), s.timing_strictness.to_string()]);
-    args.extend(["--crossfade".into(), s.crossfade_ms.to_string()]);
-    if !s.normalize_volume { args.push("--no-normalize-volume".into()); }
-    args.extend(["--aligner".into(), app.aligner.clone()]);
+    thread::spawn(move || {
+        let result: anyhow::Result<()> = (|| {
+            if settings.target_text.is_empty() && settings.reference_path.is_empty() {
+                anyhow::bail!("Either target text or reference audio is required");
+            }
 
-    run_cli_subprocess(state, args);
+            let run_dir = create_run_dir(&output_dir, seed, run_name.as_deref())?;
+            let run_dir_name = run_dir.file_name().unwrap().to_string_lossy().to_string();
+            state.add_log(&format!("Run: {}", run_dir_name));
+
+            let work_dir = run_dir.join("work");
+            let audio_paths = prepare_audio(&inputs, &work_dir, &state)?;
+
+            state.set_status(ProcessingStatus::Running("Building syllable bank...".into()));
+            state.add_log("Building source syllable bank...");
+            let aligner = get_aligner(&aligner_name, &whisper_model, "en", "cpu")?;
+            let mut all_bank_entries = Vec::new();
+            let mut source_audio = std::collections::HashMap::new();
+
+            for audio_path in &audio_paths {
+                let key = audio_path.to_string_lossy().to_string();
+                state.add_log(&format!("Aligning: {}", audio_path.file_name().unwrap().to_string_lossy()));
+                let alignment = aligner.process(audio_path, None)?;
+                let entries = build_bank(&alignment.syllables, &key);
+                state.add_log(&format!("  {} syllables", entries.len()));
+                all_bank_entries.extend(entries);
+
+                let (samples, sr) = read_wav(audio_path)?;
+                source_audio.insert(key, (samples, sr));
+            }
+
+            state.add_log(&format!("Syllable bank: {} total entries", all_bank_entries.len()));
+
+            // Get target text
+            let mut target_text = if settings.target_text.is_empty() {
+                None
+            } else {
+                Some(settings.target_text.clone())
+            };
+            let mut reference_timings: Option<Vec<(f64, f64)>> = None;
+
+            if !settings.reference_path.is_empty() {
+                let ref_path = PathBuf::from(&settings.reference_path);
+                state.add_log(&format!("Transcribing reference: {}", ref_path.display()));
+                let ref_wav = work_dir.join("reference_16k.wav");
+                extract_audio(&ref_path, &ref_wav)?;
+                let ref_alignment = aligner.process(&ref_wav, None)?;
+                target_text = Some(ref_alignment.text);
+                reference_timings = Some(
+                    ref_alignment.syllables.iter().map(|s| (s.start, s.end)).collect(),
+                );
+            }
+
+            let target_text = target_text
+                .ok_or_else(|| anyhow::anyhow!("No target text (use text or reference)"))?;
+            state.add_log(&format!("Target text: {}", target_text));
+
+            let target_syls = text_to_syllables(&target_text);
+            let word_bounds = word_boundaries_from_syllables(&target_syls);
+            state.add_log(&format!("Target: {} syllables, {} words", target_syls.len(), word_bounds.len()));
+
+            state.set_status(ProcessingStatus::Running("Matching...".into()));
+            state.add_log(&format!("Matching ({} mode)...", settings.match_unit));
+
+            let matches = if settings.match_unit == "phoneme" {
+                let all_phonemes: Vec<String> = target_syls
+                    .iter()
+                    .flat_map(|ts| ts.phonemes.clone())
+                    .collect();
+                match_phonemes(&all_phonemes, &all_bank_entries)
+            } else {
+                let target_phoneme_lists: Vec<Vec<String>> =
+                    target_syls.iter().map(|ts| ts.phonemes.clone()).collect();
+                let target_stresses: Vec<Option<u8>> =
+                    target_syls.iter().map(|ts| ts.stress).collect();
+                match_syllables(
+                    &target_phoneme_lists,
+                    &all_bank_entries,
+                    Some(&target_stresses),
+                    None,
+                )
+            };
+
+            let avg_dur = if all_bank_entries.is_empty() {
+                0.25
+            } else {
+                all_bank_entries.iter().map(|e| e.duration()).sum::<f64>()
+                    / all_bank_entries.len() as f64
+            };
+
+            let timing = plan_timing(
+                &matches,
+                &word_bounds,
+                avg_dur,
+                reference_timings.as_deref(),
+                settings.timing_strictness,
+            );
+
+            state.set_status(ProcessingStatus::Running("Assembling...".into()));
+            state.add_log("Assembling output audio...");
+            let output_path = assemble(
+                &matches,
+                &timing,
+                &source_audio,
+                &run_dir,
+                settings.crossfade_ms,
+                None,
+                settings.normalize_volume,
+                settings.pitch_correct,
+            )?;
+
+            state.add_output("Output", output_path);
+
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => state.set_status(ProcessingStatus::Done("Completed successfully".into())),
+            Err(e) => {
+                state.add_log(&format!("ERROR: {:#}", e));
+                state.set_status(ProcessingStatus::Error(format!("{}", e)));
+            }
+        }
+    });
 }
 
 /// Open a file or directory in the system's default handler.
@@ -898,72 +1184,3 @@ fn open_path(path: &Path) {
     }
 }
 
-/// Run the CLI as a subprocess and capture output.
-fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
-    thread::spawn(move || {
-        // Find our own binary path and use the CLI binary
-        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("glottisdale"));
-        let cli_exe = exe
-            .parent()
-            .map(|p| p.join("glottisdale"))
-            .unwrap_or_else(|| PathBuf::from("glottisdale"));
-
-        state.add_log(&format!("CLI binary: {}", cli_exe.display()));
-        state.add_log(&format!("Running: {} {}", cli_exe.display(), args[1..].join(" ")));
-        state.set_status(ProcessingStatus::Running("Processing...".into()));
-
-        let result = std::process::Command::new(&cli_exe)
-            .args(&args[1..]) // skip "glottisdale" since it's the program name
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output();
-
-        match result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-
-                for line in stdout.lines() {
-                    state.add_log(line);
-
-                    // Parse output file paths from CLI stdout.
-                    // The CLI prints lines like:
-                    //   Output: ./glottisdale-output/2026-02-20-breathy-bassoon/concatenated.wav
-                    //   A cappella: ./glottisdale-output/.../acappella.wav
-                    for prefix in ["Output:", "A cappella:"] {
-                        if let Some(path_str) = line.strip_prefix(prefix) {
-                            let path_str = path_str.trim();
-                            if !path_str.is_empty() {
-                                state.add_output(prefix.trim_end_matches(':'), PathBuf::from(path_str));
-                            }
-                        }
-                    }
-                }
-                for line in stderr.lines() {
-                    state.add_log(&format!("[stderr] {}", line));
-                }
-
-                if output.status.success() {
-                    state.set_status(ProcessingStatus::Done("Completed successfully".into()));
-                } else {
-                    // Find the first meaningful error line (skip empty lines and
-                    // clap's generic "For more information, try '--help'." hint)
-                    let msg = stderr
-                        .lines()
-                        .find(|l| {
-                            let trimmed = l.trim();
-                            !trimmed.is_empty() && !trimmed.starts_with("For more information")
-                        })
-                        .unwrap_or("Unknown error")
-                        .to_string();
-                    state.set_status(ProcessingStatus::Error(msg));
-                }
-            }
-            Err(e) => {
-                let msg = format!("Failed to run CLI ({}): {}", cli_exe.display(), e);
-                state.add_log(&msg);
-                state.set_status(ProcessingStatus::Error(msg));
-            }
-        }
-    });
-}
