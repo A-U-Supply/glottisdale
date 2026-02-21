@@ -18,25 +18,51 @@ Each run creates a unique subdirectory like `./glottisdale-output/2026-02-19-bre
 
 ## Install
 
-### Pre-built binary (recommended)
+No external dependencies required. Download, make executable, run.
 
-No external dependencies required. Download and run.
+The Whisper speech recognition model (~140 MB) downloads automatically on first run.
 
-Download from [GitHub Releases](https://github.com/A-U-Supply/glottisdale/releases):
+### macOS (Apple Silicon)
 
 ```bash
-# Linux (CLI + GUI)
-curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-linux-amd64 -o glottisdale
-curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-gui-linux-amd64 -o glottisdale-gui
-chmod +x glottisdale glottisdale-gui && sudo mv glottisdale glottisdale-gui /usr/local/bin/
-
-# macOS (Apple Silicon, CLI + GUI)
-curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-darwin-arm64 -o glottisdale
+# Download
 curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-gui-darwin-arm64 -o glottisdale-gui
-chmod +x glottisdale glottisdale-gui && sudo mv glottisdale glottisdale-gui /usr/local/bin/
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-darwin-arm64 -o glottisdale
+
+# Make executable
+chmod +x glottisdale-gui glottisdale
+
+# Launch the GUI
+./glottisdale-gui
 ```
 
-The Whisper model (~140 MB) downloads automatically on first run.
+> **macOS Gatekeeper:** The first time you run it, macOS may block it. Go to **System Settings > Privacy & Security**, scroll down, and click **"Allow Anyway"**, then run it again.
+
+Optionally move both binaries somewhere on your PATH so you can run them from anywhere:
+
+```bash
+sudo mv glottisdale glottisdale-gui /usr/local/bin/
+```
+
+### Linux (x86_64)
+
+```bash
+# Download
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-gui-linux-amd64 -o glottisdale-gui
+curl -L https://github.com/A-U-Supply/glottisdale/releases/latest/download/glottisdale-linux-amd64 -o glottisdale
+
+# Make executable
+chmod +x glottisdale-gui glottisdale
+
+# Launch the GUI
+./glottisdale-gui
+```
+
+Optionally move both binaries somewhere on your PATH:
+
+```bash
+sudo mv glottisdale glottisdale-gui /usr/local/bin/
+```
 
 ### From source
 
@@ -46,11 +72,11 @@ git clone https://github.com/A-U-Supply/glottisdale.git
 cd glottisdale
 cargo build --release
 
-# CLI binary
-./target/release/glottisdale --help
-
-# GUI binary
+# Launch the GUI
 ./target/release/glottisdale-gui
+
+# Or use the CLI
+./target/release/glottisdale --help
 ```
 
 ## Architecture
