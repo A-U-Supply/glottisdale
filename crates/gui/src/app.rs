@@ -1,6 +1,6 @@
 //! Main application state and UI layout.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -41,6 +41,8 @@ enum ProcessingStatus {
 struct ProcessingState {
     status: Arc<Mutex<ProcessingStatus>>,
     log_lines: Arc<Mutex<Vec<String>>>,
+    /// Output file paths parsed from CLI stdout (e.g. "Output: path/to/file.wav")
+    output_paths: Arc<Mutex<Vec<(String, PathBuf)>>>,
 }
 
 impl ProcessingState {
@@ -48,6 +50,7 @@ impl ProcessingState {
         Self {
             status: Arc::new(Mutex::new(ProcessingStatus::Idle)),
             log_lines: Arc::new(Mutex::new(Vec::new())),
+            output_paths: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -67,9 +70,18 @@ impl ProcessingState {
         self.log_lines.lock().unwrap().clone()
     }
 
+    fn add_output(&self, label: &str, path: PathBuf) {
+        self.output_paths.lock().unwrap().push((label.to_string(), path));
+    }
+
+    fn get_outputs(&self) -> Vec<(String, PathBuf)> {
+        self.output_paths.lock().unwrap().clone()
+    }
+
     fn clear(&self) {
         *self.status.lock().unwrap() = ProcessingStatus::Idle;
         self.log_lines.lock().unwrap().clear();
+        self.output_paths.lock().unwrap().clear();
     }
 }
 
@@ -614,6 +626,51 @@ fn show_speak_settings(ui: &mut egui::Ui, s: &mut SpeakSettings) {
 
 // ─── Workspace panels ───────────────────────────────────────────
 
+/// Show output files with Play and Open Folder buttons. Used by all workspace panels.
+fn show_output_section(ui: &mut egui::Ui, processing: &ProcessingState) {
+    match processing.get_status() {
+        ProcessingStatus::Done(msg) => {
+            ui.separator();
+            ui.colored_label(egui::Color32::GREEN, &msg);
+
+            let outputs = processing.get_outputs();
+            if !outputs.is_empty() {
+                ui.add_space(8.0);
+
+                // Open Folder button (use parent dir of first output)
+                if let Some(run_dir) = outputs.first().and_then(|(_, p)| p.parent()) {
+                    ui.horizontal(|ui| {
+                        if ui.button("Open Folder").clicked() {
+                            open_path(run_dir);
+                        }
+                        ui.monospace(run_dir.display().to_string());
+                    });
+                }
+
+                ui.add_space(4.0);
+
+                for (label, path) in &outputs {
+                    ui.horizontal(|ui| {
+                        if ui.button("Play").clicked() {
+                            open_path(path);
+                        }
+                        let filename = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| path.display().to_string());
+                        ui.label(format!("{}: {}", label, filename));
+                    });
+                }
+            }
+        }
+        ProcessingStatus::Error(msg) => {
+            ui.separator();
+            ui.colored_label(egui::Color32::RED, &msg);
+        }
+        _ => {}
+    }
+}
+
 fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     if app.source_files.is_empty() {
         ui.vertical_centered(|ui| {
@@ -636,21 +693,12 @@ fn show_collage_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
 
     ui.separator();
 
-    // Show source file list with info
     ui.label(format!("{} source file(s) loaded", app.source_files.len()));
     for path in &app.source_files {
         ui.monospace(path.display().to_string());
     }
 
-    // Show result if done
-    if let ProcessingStatus::Done(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::GREEN, &msg);
-    }
-    if let ProcessingStatus::Error(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::RED, &msg);
-    }
+    show_output_section(ui, &app.processing);
 }
 
 fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
@@ -684,14 +732,7 @@ fn show_sing_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
     ui.label(format!("{} source file(s)", app.source_files.len()));
     ui.label(format!("MIDI: {}", app.sing.midi_dir));
 
-    if let ProcessingStatus::Done(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::GREEN, &msg);
-    }
-    if let ProcessingStatus::Error(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::RED, &msg);
-    }
+    show_output_section(ui, &app.processing);
 }
 
 fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
@@ -728,14 +769,7 @@ fn show_speak_workspace(ui: &mut egui::Ui, app: &mut GlottisdaleApp) {
         ui.label(format!("Reference: {}", app.speak.reference_path));
     }
 
-    if let ProcessingStatus::Done(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::GREEN, &msg);
-    }
-    if let ProcessingStatus::Error(msg) = app.processing.get_status() {
-        ui.separator();
-        ui.colored_label(egui::Color32::RED, &msg);
-    }
+    show_output_section(ui, &app.processing);
 }
 
 // ─── Pipeline runners (background threads) ──────────────────────
@@ -844,6 +878,26 @@ fn start_speak(app: &mut GlottisdaleApp) {
     run_cli_subprocess(state, args);
 }
 
+/// Open a file or directory in the system's default handler.
+fn open_path(path: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn().ok();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn().ok();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", ""])
+            .arg(path)
+            .spawn()
+            .ok();
+    }
+}
+
 /// Run the CLI as a subprocess and capture output.
 fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
     thread::spawn(move || {
@@ -871,6 +925,19 @@ fn run_cli_subprocess(state: ProcessingState, args: Vec<String>) {
 
                 for line in stdout.lines() {
                     state.add_log(line);
+
+                    // Parse output file paths from CLI stdout.
+                    // The CLI prints lines like:
+                    //   Output: ./glottisdale-output/2026-02-20-breathy-bassoon/concatenated.wav
+                    //   A cappella: ./glottisdale-output/.../acappella.wav
+                    for prefix in ["Output:", "A cappella:"] {
+                        if let Some(path_str) = line.strip_prefix(prefix) {
+                            let path_str = path_str.trim();
+                            if !path_str.is_empty() {
+                                state.add_output(prefix.trim_end_matches(':'), PathBuf::from(path_str));
+                            }
+                        }
+                    }
                 }
                 for line in stderr.lines() {
                     state.add_log(&format!("[stderr] {}", line));
