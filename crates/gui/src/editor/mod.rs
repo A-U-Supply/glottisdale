@@ -40,6 +40,10 @@ pub struct EditorState {
     pub audio_error: Option<String>,
     /// Whether the keyboard shortcuts help popup is open.
     pub show_keyboard_help: bool,
+    /// Whether looping is enabled (restart from beginning when playback ends).
+    pub looping: bool,
+    /// Track whether playback was active last frame (for loop detection).
+    was_playing_last_frame: bool,
 }
 
 impl EditorState {
@@ -65,6 +69,8 @@ impl EditorState {
             bank_filter: String::new(),
             audio_error: None,
             show_keyboard_help: false,
+            looping: false,
+            was_playing_last_frame: false,
         }
     }
 
@@ -332,10 +338,19 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
 
     // Update cursor from playback engine (only while playing, so user
     // clicks can set cursor position when playback is stopped)
-    if state.playback.state.is_playing() {
+    let is_playing = state.playback.state.is_playing();
+    if is_playing {
         state.timeline.cursor_s = state.playback.state.get_cursor();
         ctx.request_repaint();
     }
+
+    // Loop detection: playback just finished naturally → restart
+    if state.looping && state.was_playing_last_frame && !is_playing {
+        state.timeline.cursor_s = 0.0;
+        state.audio_error = None;
+        state.play_from_cursor();
+    }
+    state.was_playing_last_frame = is_playing;
 
     // Check for playback errors
     if let Some(err) = state.playback.state.take_error() {
@@ -386,6 +401,12 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
                 state.play_from_cursor();
             }
         }
+        // Loop toggle
+        let loop_label = if state.looping { "Loop [on]" } else { "Loop" };
+        if ui.button(loop_label).clicked() {
+            state.looping = !state.looping;
+        }
+
         if ui.button("Stop").clicked() {
             state.playback.stop();
         }
@@ -686,5 +707,13 @@ mod tests {
         let arrangement = Arrangement::new(16000, glottisdale_core::editor::EditorPipelineMode::Collage);
         let state = EditorState::new(arrangement);
         assert!(!state.show_keyboard_help);
+    }
+
+    #[test]
+    fn test_editor_state_looping_default_off() {
+        let arrangement = Arrangement::new(16000, glottisdale_core::editor::EditorPipelineMode::Collage);
+        let state = EditorState::new(arrangement);
+        assert!(!state.looping);
+        assert!(!state.was_playing_last_frame);
     }
 }
