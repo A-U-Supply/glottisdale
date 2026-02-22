@@ -497,50 +497,50 @@ fn show_bank_panel(ui: &mut egui::Ui, state: &mut EditorState) {
                 continue;
             }
 
-            let response = ui
-                .horizontal(|ui| {
-                    // Mini waveform
-                    let (rect, resp) =
-                        ui.allocate_exact_size(egui::vec2(40.0, 24.0), egui::Sense::click());
-                    if ui.is_rect_visible(rect) {
-                        let src_idx = state
-                            .source_indices
-                            .get(&clip.source_path)
-                            .copied()
-                            .unwrap_or(0);
-                        let color =
-                            timeline::SOURCE_COLORS[src_idx % timeline::SOURCE_COLORS.len()];
-                        waveform_painter::paint_waveform(
-                            ui.painter(),
-                            rect,
-                            &clip.waveform,
-                            egui::Color32::from_rgb(color.0, color.1, color.2),
-                        );
-                    }
+            ui.horizontal(|ui| {
+                // Play/preview button
+                if ui.small_button("▶").clicked() {
+                    clip_to_play = Some(clip.id);
+                }
 
-                    ui.vertical(|ui| {
-                        ui.label(egui::RichText::new(&clip.label).small().monospace());
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "{} ({:.2}s)",
-                                clip.syllable.word,
-                                clip.duration_s()
-                            ))
-                            .small()
-                            .weak(),
-                        );
-                    });
+                // Mini waveform (click to add to timeline)
+                let (rect, wf_resp) =
+                    ui.allocate_exact_size(egui::vec2(40.0, 24.0), egui::Sense::click());
+                if ui.is_rect_visible(rect) {
+                    let src_idx = state
+                        .source_indices
+                        .get(&clip.source_path)
+                        .copied()
+                        .unwrap_or(0);
+                    let color =
+                        timeline::SOURCE_COLORS[src_idx % timeline::SOURCE_COLORS.len()];
+                    waveform_painter::paint_waveform(
+                        ui.painter(),
+                        rect,
+                        &clip.waveform,
+                        egui::Color32::from_rgb(color.0, color.1, color.2),
+                    );
+                }
 
-                    resp
-                })
-                .inner;
+                // Label (click to add to timeline)
+                let label_resp = ui.vertical(|ui| {
+                    ui.label(egui::RichText::new(&clip.label).small().monospace());
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} ({:.2}s)",
+                            clip.syllable.word,
+                            clip.duration_s()
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                }).response;
 
-            // Double-click to preview, single-click to add to timeline
-            if response.double_clicked() {
-                clip_to_play = Some(clip.id);
-            } else if response.clicked() {
-                clip_to_add = Some(clip.id);
-            }
+                // Click on waveform or label = add to timeline
+                if wf_resp.clicked() || label_resp.clicked() {
+                    clip_to_add = Some(clip.id);
+                }
+            });
         }
     });
 
