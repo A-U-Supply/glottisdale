@@ -74,35 +74,40 @@ impl EditorState {
         }
     }
 
-    /// Shuffle the selected clips randomly.
-    pub fn shuffle_selected(&mut self) {
+    /// Shuffle clips randomly. If 2+ clips are selected, shuffles only those.
+    /// Otherwise shuffles the entire timeline.
+    pub fn shuffle(&mut self) {
         use rand::seq::SliceRandom;
 
         let selected = self.timeline.selected.clone();
-        if selected.len() < 2 {
-            return;
-        }
+        let shuffle_all = selected.len() < 2;
 
-        let indices: Vec<usize> = self
-            .arrangement
-            .timeline
-            .iter()
-            .enumerate()
-            .filter(|(_, tc)| selected.contains(&tc.id))
-            .map(|(i, _)| i)
-            .collect();
+        if shuffle_all {
+            if self.arrangement.timeline.len() < 2 {
+                return;
+            }
+            let mut rng = rand::thread_rng();
+            self.arrangement.timeline.shuffle(&mut rng);
+        } else {
+            let indices: Vec<usize> = self
+                .arrangement
+                .timeline
+                .iter()
+                .enumerate()
+                .filter(|(_, tc)| selected.contains(&tc.id))
+                .map(|(i, _)| i)
+                .collect();
 
-        let mut rng = rand::thread_rng();
-        let original_clips: Vec<_> = indices
-            .iter()
-            .map(|&i| self.arrangement.timeline[i].clone())
-            .collect();
+            let mut rng = rand::thread_rng();
+            let mut clips: Vec<_> = indices
+                .iter()
+                .map(|&i| self.arrangement.timeline[i].clone())
+                .collect();
+            clips.shuffle(&mut rng);
 
-        let mut shuffled = original_clips.clone();
-        shuffled.shuffle(&mut rng);
-
-        for (slot, clip) in indices.iter().zip(shuffled.into_iter()) {
-            self.arrangement.timeline[*slot] = clip;
+            for (slot, clip) in indices.iter().zip(clips.into_iter()) {
+                self.arrangement.timeline[*slot] = clip;
+            }
         }
 
         self.arrangement.relayout(0.0);
@@ -367,11 +372,12 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
 
         let has_selection = !state.timeline.selected.is_empty();
 
+        let can_shuffle = state.arrangement.timeline.len() >= 2;
         if ui
-            .add_enabled(has_selection, egui::Button::new("Shuffle"))
+            .add_enabled(can_shuffle, egui::Button::new("Shuffle"))
             .clicked()
         {
-            state.shuffle_selected();
+            state.shuffle();
         }
         if ui
             .add_enabled(has_selection, egui::Button::new("Delete"))
@@ -715,5 +721,115 @@ mod tests {
         let state = EditorState::new(arrangement);
         assert!(!state.looping);
         assert!(!state.was_playing_last_frame);
+    }
+
+    /// Helper: create an EditorState with N dummy clips on the timeline.
+    fn state_with_clips(n: usize) -> EditorState {
+        use glottisdale_core::editor::{EditorPipelineMode, SyllableClip};
+        use glottisdale_core::types::Syllable;
+        use std::path::PathBuf;
+
+        let mut arrangement = Arrangement::new(16000, EditorPipelineMode::Collage);
+        // Add a bank clip to reference
+        let bank_clip = SyllableClip::new(
+            Syllable {
+                word: "test".into(),
+                phonemes: vec![],
+                start: 0.0,
+                end: 0.5,
+                word_index: 0,
+            },
+            vec![0.0; 8000],
+            16000,
+            PathBuf::from("test.wav"),
+        );
+        let bank_id = bank_clip.id;
+        arrangement.bank.push(bank_clip);
+
+        for _ in 0..n {
+            arrangement.timeline.push(TimelineClip {
+                id: uuid::Uuid::new_v4(),
+                source_clip_id: bank_id,
+                position_s: 0.0,
+                effects: vec![],
+                effective_duration_s: 0.5,
+            });
+        }
+        arrangement.relayout(0.0);
+        EditorState::new(arrangement)
+    }
+
+    #[test]
+    fn test_shuffle_with_no_selection_shuffles_all() {
+        let mut state = state_with_clips(5);
+        let original_ids: Vec<_> = state.arrangement.timeline.iter().map(|tc| tc.id).collect();
+        assert!(state.timeline.selected.is_empty());
+
+        // Shuffle many times — with 5 clips the chance of staying in the same order is 1/120
+        let mut changed = false;
+        for _ in 0..20 {
+            state.shuffle();
+            let new_ids: Vec<_> = state.arrangement.timeline.iter().map(|tc| tc.id).collect();
+            if new_ids != original_ids {
+                changed = true;
+                break;
+            }
+        }
+        assert!(changed, "Shuffle should reorder clips when nothing is selected");
+    }
+
+    #[test]
+    fn test_shuffle_with_one_selected_shuffles_all() {
+        let mut state = state_with_clips(5);
+        let first_id = state.arrangement.timeline[0].id;
+        state.timeline.selected.push(first_id);
+        let original_ids: Vec<_> = state.arrangement.timeline.iter().map(|tc| tc.id).collect();
+
+        let mut changed = false;
+        for _ in 0..20 {
+            state.shuffle();
+            let new_ids: Vec<_> = state.arrangement.timeline.iter().map(|tc| tc.id).collect();
+            if new_ids != original_ids {
+                changed = true;
+                break;
+            }
+        }
+        assert!(changed, "Shuffle with 1 selected should shuffle all clips");
+    }
+
+    #[test]
+    fn test_shuffle_noop_with_fewer_than_two_clips() {
+        let mut state = state_with_clips(1);
+        let original_ids: Vec<_> = state.arrangement.timeline.iter().map(|tc| tc.id).collect();
+        state.shuffle();
+        let new_ids: Vec<_> = state.arrangement.timeline.iter().map(|tc| tc.id).collect();
+        assert_eq!(original_ids, new_ids, "Shuffle should be a no-op with < 2 clips");
+    }
+
+    #[test]
+    fn test_shuffle_preserves_clip_count() {
+        let mut state = state_with_clips(5);
+        state.shuffle();
+        assert_eq!(state.arrangement.timeline.len(), 5, "Shuffle should preserve clip count");
+    }
+
+    #[test]
+    fn test_shuffle_selected_only_shuffles_selected() {
+        let mut state = state_with_clips(5);
+        // Select clips at index 1, 2, 3
+        let selected_ids: Vec<_> = state.arrangement.timeline[1..4].iter().map(|tc| tc.id).collect();
+        for &id in &selected_ids {
+            state.timeline.selected.push(id);
+        }
+        let first_id = state.arrangement.timeline[0].id;
+        let last_id = state.arrangement.timeline[4].id;
+
+        // Shuffle many times
+        for _ in 0..20 {
+            state.shuffle();
+            // First and last should remain unchanged
+            assert_eq!(state.arrangement.timeline[0].id, first_id);
+            assert_eq!(state.arrangement.timeline[4].id, last_id);
+        }
     }
 }
