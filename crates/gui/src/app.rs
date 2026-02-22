@@ -294,10 +294,20 @@ fn load_texture(
     bytes: &[u8],
 ) -> egui::TextureHandle {
     let img = image::load_from_memory(bytes)
-        .unwrap_or_else(|e| panic!("Failed to decode {name}: {e}"))
-        .to_rgba8();
-    let (w, h) = img.dimensions();
-    let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &img);
+        .unwrap_or_else(|e| panic!("Failed to decode {name}: {e}"));
+    // Downscale if either dimension exceeds egui's max texture size (2048)
+    const MAX_SIDE: u32 = 2048;
+    let img = if img.width() > MAX_SIDE || img.height() > MAX_SIDE {
+        let scale = MAX_SIDE as f64 / img.width().max(img.height()) as f64;
+        let new_w = (img.width() as f64 * scale).round() as u32;
+        let new_h = (img.height() as f64 * scale).round() as u32;
+        img.resize(new_w, new_h, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
     ctx.load_texture(name, color, egui::TextureOptions::LINEAR)
 }
 

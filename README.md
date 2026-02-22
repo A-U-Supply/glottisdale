@@ -28,7 +28,6 @@ The Whisper speech recognition model (~140 MB) downloads automatically on first 
 
 1. Download `Glottisdale-darwin-arm64.dmg` from the [latest release](https://github.com/A-U-Supply/glottisdale/releases/latest)
 2. Open the DMG and drag **Glottisdale.app** into your **Applications** folder
-3. The DMG also includes the `glottisdale` CLI binary — copy it to `/usr/local/bin/` if you want CLI access
 
 **Option B: Standalone binaries**
 
