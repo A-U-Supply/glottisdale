@@ -35,6 +35,8 @@ pub struct EditorState {
     pub source_indices: HashMap<PathBuf, usize>,
     /// Search filter for the bank panel.
     pub bank_filter: String,
+    /// Last audio/playback error to display.
+    pub audio_error: Option<String>,
 }
 
 impl EditorState {
@@ -58,6 +60,7 @@ impl EditorState {
             playback: PlaybackEngine::new(),
             source_indices,
             bank_filter: String::new(),
+            audio_error: None,
         }
     }
 
@@ -321,6 +324,12 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
         ctx.request_repaint();
     }
 
+    // Check for playback errors
+    if let Some(err) = state.playback.state.take_error() {
+        state.audio_error = Some(err);
+        ctx.request_repaint();
+    }
+
     // Toolbar
     ui.horizontal(|ui| {
         if ui.button("Close Editor").clicked() {
@@ -360,6 +369,7 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
             if playing {
                 state.playback.pause();
             } else {
+                state.audio_error = None; // Clear previous error
                 state.play_from_cursor();
             }
         }
@@ -395,6 +405,13 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
                 {
                     log::error!("Export failed: {}", e);
                 }
+            }
+        }
+
+        if let Some(ref err) = state.audio_error {
+            ui.colored_label(egui::Color32::RED, err);
+            if ui.small_button("x").clicked() {
+                state.audio_error = None;
             }
         }
 
