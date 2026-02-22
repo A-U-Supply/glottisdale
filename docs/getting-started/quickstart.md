@@ -198,16 +198,20 @@ For the full technical breakdown of every step in the pipeline, see the [Archite
 
 If you are using the GUI (`glottisdale-gui`), you can open the interactive syllable editor after any pipeline finishes:
 
-1. **After a pipeline run** — click **"Edit Arrangement"** in the output section. This builds a syllable bank from the aligned source audio and opens the editor.
+1. **After a pipeline run** — click **"Edit Arrangement"** in the output section. This builds a syllable bank from the aligned source audio and opens the editor with the pipeline's arrangement pre-loaded on the timeline.
 2. **Blank canvas mode** — click **"Build Bank & Edit"** to run alignment only and open the editor with all syllables available but an empty timeline.
 
 In the editor:
 
-- **Add clips** from the syllable bank on the left (click to add, double-click to preview)
-- **Arrange** clips on the timeline by dragging to reorder
-- **Apply effects** by right-clicking a clip (stutter, time stretch, pitch shift, duplicate, delete)
-- **Play back** your arrangement with the Play button — the cursor tracks playback position
-- **Export** to a WAV file when you are happy with the result
+- **Browse the syllable bank** on the left panel — it lists all aligned syllables with waveform thumbnails. Use the search field at the top to filter by phoneme or source word. Each entry has a ▶ play button for quick preview.
+- **Add clips** to the timeline by clicking a bank entry, or drag it directly onto the timeline. The same syllable can be added multiple times.
+- **Arrange** clips on the timeline by dragging to reorder. Clips show their waveform shape and phoneme label (e.g. "HH AH0 L OW1").
+- **Apply effects** by right-clicking a clip — stutter (x2-x8), time stretch (0.5x-4x), pitch shift (-12 to +12 semitones), duplicate, delete, or clear all effects. Effects are non-destructive and can be removed at any time.
+- **Play back** your arrangement with the Play button — a red cursor tracks playback position in real time. Click anywhere on the timeline to set the cursor position. If playback fails, the error displays as red text in the toolbar.
+- **Zoom and pan** the timeline with Ctrl+scroll (zoom) and scroll (pan) to navigate longer arrangements.
+- **Export** to a WAV file when you are happy with the result.
+
+**Keyboard shortcuts:** Space (play/pause), Ctrl+A (select all), Shift+click (multi-select), Ctrl+scroll (zoom), scroll (pan).
 
 The editor is useful for fine-tuning collage output, building custom arrangements from scratch, or experimenting with individual syllable effects.
 
