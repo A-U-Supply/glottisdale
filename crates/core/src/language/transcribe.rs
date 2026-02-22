@@ -20,7 +20,7 @@ pub fn transcribe(
 ) -> Result<TranscriptionResult> {
     #[cfg(feature = "whisper-native")]
     {
-        return transcribe_native(audio_path, model_name, language, model_dir);
+        transcribe_native(audio_path, model_name, language, model_dir)
     }
 
     #[cfg(not(feature = "whisper-native"))]

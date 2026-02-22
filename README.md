@@ -258,10 +258,10 @@ After running any pipeline, click **"Edit Arrangement"** to open the interactive
 
 The editor provides:
 
-- **Syllable bank** — all aligned syllables from your source audio, filterable, with waveform previews. Click to add to the timeline, double-click to preview.
+- **Syllable bank** — all aligned syllables from your source audio, filterable, with waveform previews. Click to add to the timeline; each entry has a ▶ play button for quick preview.
 - **Timeline** — drag-to-reorder clips, zoom/pan (Ctrl+scroll / scroll), click to select, Shift+click for multi-select.
 - **Effects** — right-click any clip for stutter (x2-x8), time stretch (0.5x-4x), pitch shift (-12 to +12 semitones), duplicate, delete, and clear effects.
-- **Playback** — Play/Pause/Stop with a moving cursor. Plays from cursor position.
+- **Playback** — Play/Pause/Stop with a moving cursor. Plays from cursor position. Errors display as red text in the toolbar with a dismiss button.
 - **Export** — render the arrangement to a WAV file.
 
 ## Dependencies

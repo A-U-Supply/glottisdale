@@ -303,8 +303,7 @@ fn load_texture(
 
 /// Build a funky rainbow-colored LayoutJob for the welcome text.
 fn welcome_text_job() -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::default();
-    job.halign = egui::Align::Center;
+    let mut job = egui::text::LayoutJob { halign: egui::Align::Center, ..Default::default() };
 
     let text = "WELCOM TO GLOTTISDALE";
     let colors = [

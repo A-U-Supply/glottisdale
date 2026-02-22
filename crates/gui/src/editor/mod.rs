@@ -108,6 +108,7 @@ impl EditorState {
         self.arrangement.relayout(0.0);
     }
 
+    #[allow(dead_code)]
     /// Apply an effect to all selected clips.
     pub fn apply_effect_to_selected(&mut self, effect: ClipEffect) {
         let selected = &self.timeline.selected;

@@ -1,7 +1,7 @@
 //! Convert pipeline output to editor arrangements.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
@@ -41,7 +41,7 @@ pub fn arrangement_from_collage(
         for (source, idx) in indices {
             // Find matching bank clip by source path and syllable index
             if let Some(bank_clip) = bank.iter().find(|c| {
-                c.source_path == PathBuf::from(source)
+                c.source_path == Path::new(source)
                     && c.syllable.word_index == *idx
             }) {
                 arr.timeline.push(TimelineClip::new(bank_clip));

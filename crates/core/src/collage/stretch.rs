@@ -80,7 +80,7 @@ pub fn should_stretch_syllable(
     }
 
     if let Some(n) = config.alternating_stretch {
-        if n > 0 && syllable_index % n == 0 {
+        if n > 0 && syllable_index.is_multiple_of(n) {
             return true;
         }
     }

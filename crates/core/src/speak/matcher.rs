@@ -101,7 +101,7 @@ pub fn match_syllables(
     // parents[i][j] = bank index chosen for target i-1 on the best path to j
     let mut parents: Vec<Vec<usize>> = vec![vec![0; b]]; // placeholder for i=0
 
-    for i in 1..n {
+    for dist_row in dists.iter().take(n).skip(1) {
         let mut new_dp = vec![inf; b];
         let mut new_parent = vec![0usize; b];
 
@@ -113,7 +113,7 @@ pub fn match_syllables(
             .unwrap();
 
         for j in 0..b {
-            let cost = dists[i][j];
+            let cost = dist_row[j];
 
             // Non-contiguous: best of any previous bank entry
             let mut best = min_prev + cost;

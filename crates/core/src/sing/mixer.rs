@@ -48,7 +48,7 @@ pub fn mix_tracks(
         let mut midi = midi_samples;
         // Resample MIDI to match vocal sample rate if needed
         // (synthesizer outputs at 22050, vocals at 16000)
-        if midi.len() > 0 {
+        if !midi.is_empty() {
             let midi_sr = 22050; // from synthesizer
             if midi_sr != vocal_sr {
                 if let Ok(resampled) = crate::audio::io::resample(&midi, midi_sr, vocal_sr) {

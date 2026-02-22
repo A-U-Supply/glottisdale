@@ -187,6 +187,7 @@ fn normalize_pitch_clips(clips: &mut [Vec<f64>], sr: u32, pitch_range: f64) {
 ///
 /// Consecutive matches from adjacent positions in the same source file
 /// are cut as a single clip to preserve natural coarticulation.
+#[allow(clippy::too_many_arguments)]
 pub fn assemble(
     matches: &[MatchResult],
     timing: &[TimingPlan],

@@ -102,7 +102,7 @@ fn ipa_sonority(label: &str) -> i32 {
         return 7;
     }
     let first = label.chars().next().unwrap();
-    let stripped = label.trim_end_matches(|c: char| c == 'ː' || c == 'ˑ');
+    let stripped = label.trim_end_matches(['ː', 'ˑ']);
     if IPA_VOWELS.contains(&first) || (stripped.len() == 1 && IPA_VOWELS.contains(&stripped.chars().next().unwrap_or(' '))) {
         return 7;
     }

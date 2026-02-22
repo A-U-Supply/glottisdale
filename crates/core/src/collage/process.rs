@@ -610,7 +610,7 @@ pub fn process(
         write_wav(&word_output, &word_samples, sr)?;
 
         // Determine dominant source
-        let word_sources: Vec<String> = word_syls.iter().map(|s| find_source(s)).collect();
+        let word_sources: Vec<String> = word_syls.iter().map(&find_source).collect();
         let dominant = word_sources
             .iter()
             .max_by_key(|s| word_sources.iter().filter(|t| *t == *s).count())

@@ -209,12 +209,10 @@ pub fn render_mapping(
     }
 
     let mut rendered_parts: Vec<Vec<f64>> = Vec::new();
-
-    for (_i, (&syl_idx, &syl_dur)) in mapping
+    for (&syl_idx, &syl_dur) in mapping
         .syllable_indices
         .iter()
         .zip(syl_durations.iter())
-        .enumerate()
     {
         if syl_idx >= syllable_clips.len() {
             continue;

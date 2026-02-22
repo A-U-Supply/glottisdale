@@ -33,6 +33,12 @@ pub struct PlaybackState {
     pub last_error: Arc<Mutex<Option<String>>>,
 }
 
+impl Default for PlaybackState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlaybackState {
     pub fn new() -> Self {
         Self {
@@ -68,6 +74,12 @@ impl PlaybackState {
 pub struct PlaybackEngine {
     command_tx: mpsc::Sender<PlaybackCommand>,
     pub state: PlaybackState,
+}
+
+impl Default for PlaybackEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PlaybackEngine {
