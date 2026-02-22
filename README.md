@@ -258,7 +258,7 @@ After running any pipeline, click **"Edit Arrangement"** to open the interactive
 The editor provides:
 
 - **Syllable bank** — all aligned syllables from your source audio, with waveform previews. Use the search field to filter by phoneme or word text. Click to add to the timeline; each entry has a ▶ play button for quick preview.
-- **Timeline** — drag-to-reorder clips, zoom/pan (Ctrl+scroll / scroll), click to select, Shift+click for multi-select. Drag the red cursor handle or click empty space to reposition. Clips display their waveform shape and phoneme label.
+- **Timeline** — drag-to-reorder clips, zoom/pan (Ctrl+scroll / scroll), click to select, Shift+click for multi-select. Drag the red cursor handle or click empty space to reposition. Clips display their waveform shape and phoneme label. The Shuffle button randomizes clip order — if 2+ clips are selected it shuffles only those, otherwise it shuffles the entire timeline.
 - **Effects** — right-click any clip for stutter (x2-x8), time stretch (0.5x-4x), pitch shift (-12 to +12 semitones), reverse, duplicate, delete, and clear effects.
 - **Playback** — Play/Pause/Stop/Loop with a moving cursor. Plays from cursor position. Loop button toggles continuous replay from the beginning. Errors display as red text in the toolbar with a dismiss button.
 - **Export** — render the arrangement to a WAV file.
