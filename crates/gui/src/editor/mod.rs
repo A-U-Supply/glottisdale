@@ -21,6 +21,7 @@ enum ContextAction {
     Stutter(ClipId, usize),
     Stretch(ClipId, f64),
     Pitch(ClipId, f64),
+    Reverse(ClipId),
     Duplicate(ClipId),
     Delete(ClipId),
     ClearEffects(ClipId),
@@ -111,7 +112,6 @@ impl EditorState {
         self.arrangement.relayout(0.0);
     }
 
-    #[allow(dead_code)]
     /// Apply an effect to all selected clips.
     pub fn apply_effect_to_selected(&mut self, effect: ClipEffect) {
         let selected = &self.timeline.selected;
@@ -201,6 +201,9 @@ fn apply_context_action(state: &mut EditorState, action: ContextAction) {
         }
         ContextAction::Pitch(clip_id, semitones) => {
             apply_effect_to_clip(state, clip_id, ClipEffect::PitchShift { semitones });
+        }
+        ContextAction::Reverse(clip_id) => {
+            apply_effect_to_clip(state, clip_id, ClipEffect::Reverse);
         }
         ContextAction::Duplicate(clip_id) => {
             if let Some(tc_idx) = state
@@ -298,6 +301,11 @@ fn show_clip_context_menu(ui: &mut egui::Ui, clip_id: ClipId, action: &mut Optio
             }
         }
     });
+
+    if ui.button("Reverse").clicked() {
+        *action = Some(ContextAction::Reverse(clip_id));
+        ui.close_menu();
+    }
 
     ui.separator();
 
@@ -501,6 +509,9 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
                     .map(|tc| tc.id)
                     .collect();
             }
+            TimelineAction::ReverseSelected => {
+                state.apply_effect_to_selected(ClipEffect::Reverse);
+            }
         }
     }
 
@@ -612,6 +623,7 @@ pub const KEYBOARD_SHORTCUTS: &[(&str, &str)] = &[
     ("0 / g", "Cursor to beginning"),
     ("$ / G", "Cursor to end"),
     ("Ctrl+A", "Select all clips"),
+    ("r", "Reverse selected clips"),
     ("Delete / Backspace / x", "Delete selected clips"),
     ("Ctrl+Scroll", "Zoom in/out"),
     ("Scroll", "Pan timeline"),

@@ -32,6 +32,8 @@ pub enum TimelineAction {
     DeleteSelected,
     /// Select all clips.
     SelectAll,
+    /// Reverse selected clips.
+    ReverseSelected,
 }
 
 /// Visual and interaction state for the timeline.
@@ -436,6 +438,11 @@ pub fn show_timeline(
             || (!shift && ui.input(|i| i.key_pressed(egui::Key::X)))
         {
             actions.push(TimelineAction::DeleteSelected);
+        }
+
+        // r — reverse selected clips
+        if !shift && !cmd && ui.input(|i| i.key_pressed(egui::Key::R)) {
+            actions.push(TimelineAction::ReverseSelected);
         }
 
         // Ctrl+A — select all

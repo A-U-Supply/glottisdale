@@ -64,6 +64,7 @@ pub enum ClipEffect {
     Stutter { count: usize },
     TimeStretch { factor: f64 },
     PitchShift { semitones: f64 },
+    Reverse,
 }
 
 /// A clip placed on the timeline.

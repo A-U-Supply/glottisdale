@@ -32,6 +32,9 @@ pub fn apply_effects(
             ClipEffect::PitchShift { semitones } => {
                 samples = crate::audio::effects::pitch_shift(&samples, sr, *semitones)?;
             }
+            ClipEffect::Reverse => {
+                samples.reverse();
+            }
         }
     }
 
@@ -49,8 +52,8 @@ pub fn compute_effective_duration(base_duration_s: f64, effects: &[ClipEffect]) 
             ClipEffect::TimeStretch { factor } => {
                 dur *= factor;
             }
-            ClipEffect::PitchShift { .. } => {
-                // Pitch shift preserves duration
+            ClipEffect::PitchShift { .. } | ClipEffect::Reverse => {
+                // Pitch shift and reverse preserve duration
             }
         }
     }
@@ -151,6 +154,49 @@ mod tests {
         .unwrap();
         let ratio = result.len() as f64 / original_len as f64;
         assert!(ratio > 3.5 && ratio < 4.5, "ratio={}", ratio);
+    }
+
+    #[test]
+    fn test_reverse_preserves_length() {
+        let samples = sine_samples(0.5, 16000);
+        let original_len = samples.len();
+        let result = apply_effects(
+            &samples,
+            16000,
+            &[ClipEffect::Reverse],
+        )
+        .unwrap();
+        assert_eq!(result.len(), original_len);
+    }
+
+    #[test]
+    fn test_reverse_reverses_samples() {
+        let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = apply_effects(
+            &samples,
+            16000,
+            &[ClipEffect::Reverse],
+        )
+        .unwrap();
+        assert_eq!(result, vec![5.0, 4.0, 3.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn test_double_reverse_identity() {
+        let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = apply_effects(
+            &samples,
+            16000,
+            &[ClipEffect::Reverse, ClipEffect::Reverse],
+        )
+        .unwrap();
+        assert_eq!(result, samples);
+    }
+
+    #[test]
+    fn test_compute_duration_reverse() {
+        let dur = compute_effective_duration(1.0, &[ClipEffect::Reverse]);
+        assert!((dur - 1.0).abs() < 0.001);
     }
 
     #[test]
