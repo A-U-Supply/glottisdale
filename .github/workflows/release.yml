@@ -20,6 +20,9 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             binary_suffix: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            binary_suffix: darwin-amd64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -27,6 +30,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -36,13 +41,13 @@ jobs:
             libxkbcommon-dev libgtk-3-dev
 
       - name: Build release binaries
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package binaries
         run: |
           mkdir -p dist
-          cp target/release/glottisdale dist/glottisdale-${{ matrix.binary_suffix }}
-          cp target/release/glottisdale-gui dist/glottisdale-gui-${{ matrix.binary_suffix }}
+          cp target/${{ matrix.target }}/release/glottisdale dist/glottisdale-${{ matrix.binary_suffix }}
+          cp target/${{ matrix.target }}/release/glottisdale-gui dist/glottisdale-gui-${{ matrix.binary_suffix }}
           chmod +x dist/glottisdale-${{ matrix.binary_suffix }}
           chmod +x dist/glottisdale-gui-${{ matrix.binary_suffix }}
 
@@ -51,15 +56,15 @@ jobs:
         run: |
           APP_NAME="Glottisdale"
           APP_DIR="dist/${APP_NAME}.app"
-          DMG_NAME="Glottisdale-darwin-arm64.dmg"
+          DMG_NAME="Glottisdale-${{ matrix.binary_suffix }}.dmg"
 
           # Create .app bundle structure
           mkdir -p "${APP_DIR}/Contents/MacOS"
           mkdir -p "${APP_DIR}/Contents/Resources"
 
           # Copy binaries into .app
-          cp target/release/glottisdale-gui "${APP_DIR}/Contents/MacOS/glottisdale-gui"
-          cp target/release/glottisdale "${APP_DIR}/Contents/MacOS/glottisdale"
+          cp target/${{ matrix.target }}/release/glottisdale-gui "${APP_DIR}/Contents/MacOS/glottisdale-gui"
+          cp target/${{ matrix.target }}/release/glottisdale "${APP_DIR}/Contents/MacOS/glottisdale"
           chmod +x "${APP_DIR}/Contents/MacOS/glottisdale-gui"
           chmod +x "${APP_DIR}/Contents/MacOS/glottisdale"
 
@@ -121,7 +126,7 @@ jobs:
           # Create DMG
           mkdir -p dist/dmg-staging
           cp -R "${APP_DIR}" dist/dmg-staging/
-          cp target/release/glottisdale dist/dmg-staging/glottisdale
+          cp target/${{ matrix.target }}/release/glottisdale dist/dmg-staging/glottisdale
           chmod +x dist/dmg-staging/glottisdale
 
           # Add symlink to /Applications for drag-install
@@ -148,8 +153,8 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: Glottisdale-darwin-arm64-dmg
-          path: dist/Glottisdale-darwin-arm64.dmg
+          name: Glottisdale-${{ matrix.binary_suffix }}-dmg
+          path: dist/Glottisdale-${{ matrix.binary_suffix }}.dmg
 
   release:
     needs: build
