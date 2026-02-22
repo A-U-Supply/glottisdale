@@ -319,9 +319,10 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
     let mut close = false;
     let mut context_action: Option<ContextAction> = None;
 
-    // Update cursor from playback engine
-    state.timeline.cursor_s = state.playback.state.get_cursor();
+    // Update cursor from playback engine (only while playing, so user
+    // clicks can set cursor position when playback is stopped)
     if state.playback.state.is_playing() {
+        state.timeline.cursor_s = state.playback.state.get_cursor();
         ctx.request_repaint();
     }
 

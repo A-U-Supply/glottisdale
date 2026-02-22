@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use rodio::{OutputStream, Sink};
+use rodio::{buffer::SamplesBuffer, OutputStream, Sink};
 
 /// Command sent to the playback thread.
 pub enum PlaybackCommand {
@@ -149,17 +149,31 @@ fn process_command(
             sample_rate: sr,
             start_cursor_s,
         } => {
+            if samples.is_empty() {
+                log::warn!("PlaySamples received empty audio buffer");
+                return;
+            }
             if let Some(handle) = stream_handle {
                 // Drop old sink, create a fresh one
                 drop(sink.take());
                 match Sink::try_new(handle) {
                     Ok(new_sink) => {
-                        let source = crate::audio::playback::make_f64_source(samples, sr);
+                        // Convert f64 → f32 and use rodio's built-in SamplesBuffer
+                        // (most battle-tested Source path through rodio internals)
+                        let f32_samples: Vec<f32> =
+                            samples.iter().map(|&s| s as f32).collect();
+                        let source = SamplesBuffer::new(1, sr, f32_samples);
                         new_sink.append(source);
                         new_sink.play();
                         *sink = Some(new_sink);
                         *play_start = Some((Instant::now(), start_cursor_s));
                         *state.is_playing.lock().unwrap() = true;
+                        log::debug!(
+                            "Playing {} samples at {} Hz from cursor {:.3}s",
+                            samples.len(),
+                            sr,
+                            start_cursor_s
+                        );
                     }
                     Err(e) => {
                         log::error!("Failed to create audio sink: {}", e);
@@ -195,7 +209,10 @@ fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
     // Try to open audio output; if it fails, the thread just consumes commands.
     // OutputStream must stay alive for the entire thread lifetime.
     let audio = match OutputStream::try_default() {
-        Ok(pair) => Some(pair),
+        Ok(pair) => {
+            log::info!("Playback engine: audio device opened successfully");
+            Some(pair)
+        }
         Err(e) => {
             log::error!("Failed to open audio output: {}", e);
             state.set_error(format!("Audio device: {}", e));
@@ -311,19 +328,34 @@ mod tests {
 
         engine.play_samples(samples, sr, 0.0);
 
-        // Give the thread time to process the command
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        // The engine should either be playing or have reported an error
-        // (e.g. no audio device in CI). It must NOT silently do nothing.
-        let is_playing = engine.state.is_playing();
-        let error = engine.state.take_error();
+        // Poll for evidence that the command was processed (playing started,
+        // cursor moved, or an error was reported). Playback might finish
+        // quickly if the audio device processes samples faster than real-time.
+        let mut was_playing = false;
+        let mut cursor_moved = false;
+        let mut got_error = false;
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if engine.state.is_playing() {
+                was_playing = true;
+            }
+            if engine.state.get_cursor() > 0.0 {
+                cursor_moved = true;
+            }
+            if engine.state.take_error().is_some() {
+                got_error = true;
+            }
+            if was_playing || cursor_moved || got_error {
+                break;
+            }
+        }
 
         assert!(
-            is_playing || error.is_some(),
-            "Command was silently dropped: is_playing={}, error={:?}",
-            is_playing,
-            error
+            was_playing || cursor_moved || got_error,
+            "Command was silently dropped: was_playing={}, cursor_moved={}, got_error={}",
+            was_playing,
+            cursor_moved,
+            got_error
         );
 
         engine.stop();
