@@ -108,7 +108,7 @@ pub fn syllabify(pron: &[String], alaska_rule: bool) -> Result<Vec<SyllableParts
         }
 
         // Y-gliding: if onset ends with Y and has >2 consonants, push Y into next nucleus
-        if onsets[i].len() > 2 && onsets[i].last().map_or(false, |s| s == "Y") {
+        if onsets[i].len() > 2 && onsets[i].last().is_some_and(|s| s == "Y") {
             let y = onsets[i].pop().unwrap();
             nuclei[i].insert(0, y);
         }
@@ -116,7 +116,7 @@ pub fn syllabify(pron: &[String], alaska_rule: bool) -> Result<Vec<SyllableParts
         // Alaska rule: /s/ before lax vowels goes to coda
         if onsets[i].len() > 1
             && alaska_rule
-            && nuclei[i - 1].last().map_or(false, |s| is_slax(s))
+            && nuclei[i - 1].last().is_some_and(|s| is_slax(s))
             && onsets[i][0] == "S"
         {
             coda.push(onsets[i].remove(0));
@@ -157,8 +157,8 @@ pub fn syllabify(pron: &[String], alaska_rule: bool) -> Result<Vec<SyllableParts
     // Build output
     let output: Vec<SyllableParts> = onsets
         .into_iter()
-        .zip(nuclei.into_iter())
-        .zip(codas.into_iter())
+        .zip(nuclei)
+        .zip(codas)
         .map(|((o, n), c)| (o, n, c))
         .collect();
 

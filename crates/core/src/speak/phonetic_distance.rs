@@ -95,7 +95,7 @@ pub fn normalize_phoneme(phoneme: &str) -> String {
     }
 
     // Strip IPA length markers
-    let cleaned = phoneme.trim_end_matches(|c: char| c == 'ː' || c == 'ˑ');
+    let cleaned = phoneme.trim_end_matches(['ː', 'ˑ']);
 
     // Try multi-char diphthongs first, then single-char
     for (ipa, arpabet) in IPA_TO_ARPABET.iter() {

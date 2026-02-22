@@ -27,7 +27,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Syllable-level audio collage
-    Collage(CollageArgs),
+    Collage(Box<CollageArgs>),
     /// Map syllables to MIDI melody ("drunk choir")
     Sing(SingArgs),
     /// Reconstruct text using source audio syllables
@@ -325,7 +325,7 @@ fn main() {
         .init();
 
     let result = match cli.command {
-        Command::Collage(args) => run_collage(args),
+        Command::Collage(args) => run_collage(*args),
         Command::Sing(args) => run_sing(args),
         Command::Speak(args) => run_speak(args),
     };
