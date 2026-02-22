@@ -67,7 +67,10 @@ impl Iterator for F64Source {
 
 impl Source for F64Source {
     fn current_frame_len(&self) -> Option<usize> {
-        Some(self.samples.len() - self.position)
+        // Return None (matching rodio's SamplesBuffer behavior) to indicate
+        // that audio parameters are constant throughout. Returning Some(n)
+        // changes how rodio batches its internal resampling pipeline.
+        None
     }
 
     fn channels(&self) -> u16 {
@@ -111,7 +114,7 @@ mod tests {
     #[test]
     fn test_f64_source_empty() {
         let source = F64Source::new(vec![], 16000);
-        assert_eq!(source.current_frame_len(), Some(0));
+        assert_eq!(source.current_frame_len(), None);
         let collected: Vec<f32> = source.collect();
         assert!(collected.is_empty());
     }
