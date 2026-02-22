@@ -14,7 +14,7 @@ use glottisdale_core::editor::{
     render::render_arrangement,
 };
 
-use self::timeline::TimelineState;
+use self::timeline::{TimelineAction, TimelineState};
 
 /// Action from the context menu to apply after rendering.
 enum ContextAction {
@@ -37,6 +37,8 @@ pub struct EditorState {
     pub bank_filter: String,
     /// Last audio/playback error to display.
     pub audio_error: Option<String>,
+    /// Whether the keyboard shortcuts help popup is open.
+    pub show_keyboard_help: bool,
 }
 
 impl EditorState {
@@ -61,6 +63,7 @@ impl EditorState {
             source_indices,
             bank_filter: String::new(),
             audio_error: None,
+            show_keyboard_help: false,
         }
     }
 
@@ -418,6 +421,10 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("?").on_hover_text("Keyboard shortcuts").clicked() {
+                state.show_keyboard_help = !state.show_keyboard_help;
+            }
+
             let n_clips = state.arrangement.timeline.len();
             let dur = state.arrangement.total_duration_s();
             ui.label(format!("{} clips | {:.1}s", n_clips, dur));
@@ -437,15 +444,17 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
 
     // Timeline in central panel
     let mut reorder: Option<(usize, usize)> = None;
+    let mut timeline_actions: Vec<TimelineAction> = Vec::new();
     egui::CentralPanel::default().show_inside(ui, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let (response, timeline_reorder) = timeline::show_timeline(
+            let (response, timeline_reorder, actions) = timeline::show_timeline(
                 ui,
                 &state.arrangement,
                 &mut state.timeline,
                 &state.source_indices,
             );
             reorder = timeline_reorder;
+            timeline_actions = actions;
 
             // Context menu on right-click
             let menu_clip = state.timeline.context_menu_clip;
@@ -468,6 +477,36 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
     // Apply context menu action
     if let Some(action) = context_action {
         apply_context_action(state, action);
+    }
+
+    // Handle keyboard actions from timeline
+    for action in timeline_actions {
+        match action {
+            TimelineAction::TogglePlayPause => {
+                if state.playback.state.is_playing() {
+                    state.playback.pause();
+                } else {
+                    state.audio_error = None;
+                    state.play_from_cursor();
+                }
+            }
+            TimelineAction::DeleteSelected => {
+                state.delete_selected();
+            }
+            TimelineAction::SelectAll => {
+                state.timeline.selected = state
+                    .arrangement
+                    .timeline
+                    .iter()
+                    .map(|tc| tc.id)
+                    .collect();
+            }
+        }
+    }
+
+    // Keyboard shortcuts help popup
+    if state.show_keyboard_help {
+        show_keyboard_help_window(ctx, &mut state.show_keyboard_help);
     }
 
     close
@@ -559,5 +598,81 @@ fn show_bank_panel(ui: &mut egui::Ui, state: &mut EditorState) {
     }
     if let Some(id) = clip_to_play {
         state.play_clip(id);
+    }
+}
+
+/// Keyboard shortcut descriptions for the help popup.
+pub const KEYBOARD_SHORTCUTS: &[(&str, &str)] = &[
+    ("Space", "Play / Pause"),
+    ("Left / h", "Move cursor left"),
+    ("Right / l", "Move cursor right"),
+    ("Shift+Left/Right", "Move cursor faster"),
+    ("j", "Scroll timeline forward"),
+    ("k", "Scroll timeline backward"),
+    ("0 / g", "Cursor to beginning"),
+    ("$ / G", "Cursor to end"),
+    ("Ctrl+A", "Select all clips"),
+    ("Delete / Backspace / x", "Delete selected clips"),
+    ("Ctrl+Scroll", "Zoom in/out"),
+    ("Scroll", "Pan timeline"),
+    ("Click clip", "Select clip"),
+    ("Shift+Click", "Toggle clip selection"),
+    ("Right-click clip", "Context menu (effects)"),
+    ("Drag clip", "Reorder clips"),
+    ("Drag cursor", "Scrub playback position"),
+];
+
+/// Show the keyboard shortcuts help window.
+fn show_keyboard_help_window(ctx: &egui::Context, open: &mut bool) {
+    egui::Window::new("Keyboard Shortcuts")
+        .open(open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(320.0)
+        .show(ctx, |ui| {
+            egui::Grid::new("shortcuts_grid")
+                .num_columns(2)
+                .spacing([20.0, 4.0])
+                .show(ui, |ui| {
+                    for &(key, desc) in KEYBOARD_SHORTCUTS {
+                        ui.label(egui::RichText::new(key).monospace().strong());
+                        ui.label(desc);
+                        ui.end_row();
+                    }
+                });
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keyboard_shortcuts_not_empty() {
+        assert!(!KEYBOARD_SHORTCUTS.is_empty());
+        assert!(KEYBOARD_SHORTCUTS.len() >= 10);
+    }
+
+    #[test]
+    fn test_keyboard_shortcuts_no_empty_entries() {
+        for &(key, desc) in KEYBOARD_SHORTCUTS {
+            assert!(!key.is_empty(), "Key should not be empty");
+            assert!(!desc.is_empty(), "Description should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_keyboard_shortcuts_has_essential_bindings() {
+        let keys: Vec<&str> = KEYBOARD_SHORTCUTS.iter().map(|&(k, _)| k).collect();
+        assert!(keys.iter().any(|k| k.contains("Space")));
+        assert!(keys.iter().any(|k| k.contains("Delete")));
+        assert!(keys.iter().any(|k| k.contains("Ctrl+A")));
+    }
+
+    #[test]
+    fn test_editor_state_show_keyboard_help_default() {
+        let arrangement = Arrangement::new(16000, glottisdale_core::editor::EditorPipelineMode::Collage);
+        let state = EditorState::new(arrangement);
+        assert!(!state.show_keyboard_help);
     }
 }

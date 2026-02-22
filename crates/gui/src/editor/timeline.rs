@@ -23,6 +23,17 @@ pub struct DragState {
     pub insert_before: Option<usize>,
 }
 
+/// Keyboard action emitted by the timeline for the parent to handle.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TimelineAction {
+    /// Toggle play/pause.
+    TogglePlayPause,
+    /// Delete selected clips.
+    DeleteSelected,
+    /// Select all clips.
+    SelectAll,
+}
+
 /// Visual and interaction state for the timeline.
 pub struct TimelineState {
     /// Pixels per second (zoom level).
@@ -122,18 +133,18 @@ fn clip_at_time(arrangement: &Arrangement, time_s: f64) -> Option<(usize, ClipId
     None
 }
 
-/// Paint the timeline with all clips. Returns (response, optional reorder).
+/// Paint the timeline with all clips. Returns (response, optional reorder, keyboard actions).
 pub fn show_timeline(
     ui: &mut egui::Ui,
     arrangement: &Arrangement,
     state: &mut TimelineState,
     source_file_indices: &std::collections::HashMap<std::path::PathBuf, usize>,
-) -> (egui::Response, Option<(usize, usize)>) {
+) -> (egui::Response, Option<(usize, usize)>, Vec<TimelineAction>) {
     let desired_size = egui::vec2(ui.available_width(), state.track_height + 20.0);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
 
     if !ui.is_rect_visible(rect) {
-        return (response, None);
+        return (response, None, Vec::new());
     }
 
     let painter = ui.painter_at(rect);
@@ -358,25 +369,138 @@ pub fn show_timeline(
         }
     }
 
-    // Arrow keys move cursor (when timeline has focus / is hovered)
+    // Keyboard shortcuts (when timeline is hovered)
+    let mut actions = Vec::new();
     if response.hovered() {
         // Step size: 1 pixel worth of time, or 0.05s minimum
         let step = (1.0 / state.pixels_per_second).max(0.05);
         let big_step = step * 10.0; // Shift+arrow for larger jumps
 
         let shift = ui.input(|i| i.modifiers.shift);
+        let cmd = ui.input(|i| i.modifiers.command);
 
-        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+        // Arrow keys / h,l — move cursor
+        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft))
+            || ui.input(|i| i.key_pressed(egui::Key::H))
+        {
             let amount = if shift { big_step } else { step };
             state.cursor_s = (state.cursor_s - amount).max(0.0);
         }
-        if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+        if ui.input(|i| i.key_pressed(egui::Key::ArrowRight))
+            || ui.input(|i| i.key_pressed(egui::Key::L))
+        {
             let amount = if shift { big_step } else { step };
             state.cursor_s += amount;
         }
+
+        // j/k — pan timeline
+        let pan_step = 100.0 / state.pixels_per_second; // ~100 pixels worth
+        if ui.input(|i| i.key_pressed(egui::Key::J)) {
+            state.scroll_offset_s += pan_step;
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::K)) {
+            state.scroll_offset_s = (state.scroll_offset_s - pan_step).max(0.0);
+        }
+
+        // 0 — cursor to beginning
+        if ui.input(|i| i.key_pressed(egui::Key::Num0)) {
+            state.cursor_s = 0.0;
+            state.scroll_offset_s = 0.0;
+        }
+
+        // $ (Shift+4) — cursor to end
+        if shift && ui.input(|i| i.key_pressed(egui::Key::Num4)) {
+            let total = arrangement.total_duration_s();
+            state.cursor_s = total;
+        }
+
+        // g — cursor to beginning (vim gg)
+        if !shift && ui.input(|i| i.key_pressed(egui::Key::G)) {
+            state.cursor_s = 0.0;
+            state.scroll_offset_s = 0.0;
+        }
+        // G (Shift+g) — cursor to end
+        if shift && ui.input(|i| i.key_pressed(egui::Key::G)) {
+            let total = arrangement.total_duration_s();
+            state.cursor_s = total;
+        }
+
+        // Space — toggle play/pause
+        if ui.input(|i| i.key_pressed(egui::Key::Space)) {
+            actions.push(TimelineAction::TogglePlayPause);
+        }
+
+        // Delete / Backspace / x — delete selected clips
+        if ui.input(|i| i.key_pressed(egui::Key::Delete))
+            || ui.input(|i| i.key_pressed(egui::Key::Backspace))
+            || (!shift && ui.input(|i| i.key_pressed(egui::Key::X)))
+        {
+            actions.push(TimelineAction::DeleteSelected);
+        }
+
+        // Ctrl+A — select all
+        if cmd && ui.input(|i| i.key_pressed(egui::Key::A)) {
+            actions.push(TimelineAction::SelectAll);
+        }
     }
 
-    (response, reorder)
+    (response, reorder, actions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timeline_action_variants() {
+        let actions = vec![
+            TimelineAction::TogglePlayPause,
+            TimelineAction::DeleteSelected,
+            TimelineAction::SelectAll,
+        ];
+        assert_eq!(actions.len(), 3);
+        assert_eq!(actions[0], TimelineAction::TogglePlayPause);
+        assert_eq!(actions[1], TimelineAction::DeleteSelected);
+        assert_eq!(actions[2], TimelineAction::SelectAll);
+    }
+
+    #[test]
+    fn test_timeline_state_defaults() {
+        let state = TimelineState::default();
+        assert_eq!(state.pixels_per_second, 200.0);
+        assert_eq!(state.scroll_offset_s, 0.0);
+        assert_eq!(state.cursor_s, 0.0);
+        assert!(state.selected.is_empty());
+        assert!(state.drag.is_none());
+        assert!(!state.dragging_cursor);
+    }
+
+    #[test]
+    fn test_time_to_px_and_back() {
+        let state = TimelineState::default();
+        let px = state.time_to_px(1.0);
+        let time = state.px_to_time(px);
+        assert!((time - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_time_to_px_with_scroll_offset() {
+        let mut state = TimelineState::default();
+        state.scroll_offset_s = 2.0;
+        // Time 2.0 should map to px 0
+        assert_eq!(state.time_to_px(2.0), 0.0);
+        // Time 3.0 should map to 200px (one second at 200 px/s)
+        assert_eq!(state.time_to_px(3.0), 200.0);
+    }
+
+    #[test]
+    fn test_is_selected() {
+        let mut state = TimelineState::default();
+        let id = uuid::Uuid::new_v4();
+        assert!(!state.is_selected(id));
+        state.selected.push(id);
+        assert!(state.is_selected(id));
+    }
 }
 
 /// Paint time markers along the top of the timeline.
