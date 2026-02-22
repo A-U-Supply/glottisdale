@@ -123,7 +123,14 @@ impl PlaybackEngine {
 fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
     // Try to open audio output; if it fails, the thread just consumes commands.
     // OutputStream must stay alive for the entire thread lifetime.
-    let audio = OutputStream::try_default().ok();
+    let audio = match OutputStream::try_default() {
+        Ok(pair) => Some(pair),
+        Err(e) => {
+            log::error!("Failed to open audio output: {}", e);
+            state.set_error(format!("Audio device: {}", e));
+            None
+        }
+    };
     let stream_handle = audio.as_ref().map(|(_, h)| h);
 
     // Sink is recreated for each PlaySamples command because Sink::stop()
@@ -143,14 +150,23 @@ fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
                     if let Some(handle) = stream_handle {
                         // Drop old sink, create a fresh one
                         drop(sink.take());
-                        if let Ok(new_sink) = Sink::try_new(handle) {
-                            let source = crate::audio::playback::make_f64_source(samples, sr);
-                            new_sink.append(source);
-                            new_sink.play();
-                            sink = Some(new_sink);
-                            play_start = Some((Instant::now(), start_cursor_s));
-                            *state.is_playing.lock().unwrap() = true;
+                        match Sink::try_new(handle) {
+                            Ok(new_sink) => {
+                                let source =
+                                    crate::audio::playback::make_f64_source(samples, sr);
+                                new_sink.append(source);
+                                new_sink.play();
+                                sink = Some(new_sink);
+                                play_start = Some((Instant::now(), start_cursor_s));
+                                *state.is_playing.lock().unwrap() = true;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to create audio sink: {}", e);
+                                state.set_error(format!("Audio sink: {}", e));
+                            }
                         }
+                    } else {
+                        state.set_error("No audio output device available".into());
                     }
                 }
                 PlaybackCommand::Pause => {
@@ -230,5 +246,13 @@ mod tests {
 
         // After taking, error is cleared
         assert!(state.take_error().is_none());
+    }
+
+    #[test]
+    fn test_playback_engine_reports_empty_play() {
+        let engine = PlaybackEngine::new();
+        engine.play_samples(vec![], 16000, 0.0);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        engine.stop();
     }
 }
