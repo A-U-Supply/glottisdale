@@ -146,16 +146,31 @@ impl EditorState {
 
     /// Play the arrangement from the current cursor position.
     pub fn play_from_cursor(&self) {
-        if let Ok(samples) = render_arrangement(&self.arrangement) {
-            let sr = self.arrangement.sample_rate;
-            let cursor = self.timeline.cursor_s;
-            let start_sample = (cursor * sr as f64).round() as usize;
-            let play_samples = if start_sample < samples.len() {
-                samples[start_sample..].to_vec()
-            } else {
-                vec![]
-            };
-            self.playback.play_samples(play_samples, sr, cursor);
+        if self.arrangement.timeline.is_empty() {
+            log::warn!("Nothing to play — timeline is empty");
+            return;
+        }
+        match render_arrangement(&self.arrangement) {
+            Ok(samples) => {
+                if samples.is_empty() {
+                    log::warn!("Render produced no audio");
+                    return;
+                }
+                let sr = self.arrangement.sample_rate;
+                let cursor = self.timeline.cursor_s;
+                let start_sample = (cursor * sr as f64).round() as usize;
+                let play_samples = if start_sample < samples.len() {
+                    samples[start_sample..].to_vec()
+                } else {
+                    log::warn!("Cursor past end of arrangement");
+                    return;
+                };
+                self.playback.play_samples(play_samples, sr, cursor);
+            }
+            Err(e) => {
+                log::error!("Render failed: {}", e);
+                self.playback.state.set_error(format!("Render: {}", e));
+            }
         }
     }
 
