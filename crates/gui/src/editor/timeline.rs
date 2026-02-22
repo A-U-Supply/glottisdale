@@ -39,6 +39,8 @@ pub struct TimelineState {
     pub context_menu_clip: Option<ClipId>,
     /// Active drag-to-reorder state.
     pub drag: Option<DragState>,
+    /// Whether the cursor/scrubber is being dragged.
+    pub dragging_cursor: bool,
 }
 
 impl Default for TimelineState {
@@ -51,6 +53,7 @@ impl Default for TimelineState {
             selected: Vec::new(),
             context_menu_clip: None,
             drag: None,
+            dragging_cursor: false,
         }
     }
 }
@@ -215,16 +218,33 @@ pub fn show_timeline(
         }
     }
 
-    // Playback cursor
+    // Playback cursor with drag handle
     let cursor_x = state.time_to_px(state.cursor_s) + rect.left();
     if cursor_x >= rect.left() && cursor_x <= rect.right() {
+        let cursor_color = if state.dragging_cursor {
+            egui::Color32::from_rgb(255, 100, 100)
+        } else {
+            egui::Color32::RED
+        };
+        // Vertical line
         painter.line_segment(
             [
                 egui::pos2(cursor_x, rect.top()),
                 egui::pos2(cursor_x, rect.bottom()),
             ],
-            egui::Stroke::new(2.0, egui::Color32::RED),
+            egui::Stroke::new(2.0, cursor_color),
         );
+        // Triangle handle at top
+        let tri_size = 6.0;
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                egui::pos2(cursor_x - tri_size, rect.top()),
+                egui::pos2(cursor_x + tri_size, rect.top()),
+                egui::pos2(cursor_x, rect.top() + tri_size * 1.5),
+            ],
+            cursor_color,
+            egui::Stroke::NONE,
+        ));
     }
 
     // Handle zoom and pan
@@ -233,30 +253,45 @@ pub fn show_timeline(
 
     let mut reorder: Option<(usize, usize)> = None;
 
-    // Handle drag-to-reorder
+    // Handle drag — cursor drag takes priority over clip reorder
+    let cursor_grab_px = 8.0; // pixels of tolerance for grabbing cursor
     if response.drag_started() {
         if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
-            let click_time = state.px_to_time(origin.x - rect.left());
-            if let Some((idx, id)) = clip_at_time(arrangement, click_time) {
-                state.drag = Some(DragState {
-                    clip_index: idx,
-                    clip_id: id,
-                    insert_before: None,
-                });
-                // Select the dragged clip
-                if !state.selected.contains(&id) {
-                    state.selected = vec![id];
+            let click_px = origin.x - rect.left();
+            let cursor_px = state.time_to_px(state.cursor_s);
+            if (click_px - cursor_px).abs() < cursor_grab_px {
+                // Dragging the cursor/scrubber
+                state.dragging_cursor = true;
+            } else {
+                let click_time = state.px_to_time(click_px);
+                if let Some((idx, id)) = clip_at_time(arrangement, click_time) {
+                    state.drag = Some(DragState {
+                        clip_index: idx,
+                        clip_id: id,
+                        insert_before: None,
+                    });
+                    if !state.selected.contains(&id) {
+                        state.selected = vec![id];
+                    }
+                } else {
+                    // Dragging on empty space also moves cursor
+                    state.dragging_cursor = true;
+                    state.cursor_s = state.px_to_time(click_px).max(0.0);
                 }
             }
         }
     }
 
     if response.dragged() {
-        if let Some(ref mut drag) = state.drag {
+        if state.dragging_cursor {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let px = pos.x - rect.left();
+                state.cursor_s = state.px_to_time(px).max(0.0);
+            }
+        } else if let Some(ref mut drag) = state.drag {
             if let Some(pos) = response.interact_pointer_pos() {
                 let px = pos.x - rect.left();
                 let drag_time = px as f64 / state.pixels_per_second + state.scroll_offset_s;
-                // Find insertion position based on clip midpoints
                 let mut insert = arrangement.timeline.len();
                 for (i, tc) in arrangement.timeline.iter().enumerate() {
                     if i == drag.clip_index {
@@ -274,9 +309,10 @@ pub fn show_timeline(
     }
 
     if response.drag_stopped() {
-        if let Some(drag) = state.drag.take() {
+        if state.dragging_cursor {
+            state.dragging_cursor = false;
+        } else if let Some(drag) = state.drag.take() {
             if let Some(insert) = drag.insert_before {
-                // Only reorder if actually moved to a different position
                 if insert != drag.clip_index && insert != drag.clip_index + 1 {
                     reorder = Some((drag.clip_index, insert));
                 }
@@ -300,7 +336,7 @@ pub fn show_timeline(
     }
 
     // Handle click to select/set cursor (only if not dragging)
-    if response.clicked() && state.drag.is_none() {
+    if response.clicked() && state.drag.is_none() && !state.dragging_cursor {
         if let Some(pos) = response.interact_pointer_pos() {
             let click_time = state.px_to_time(pos.x - rect.left());
 
@@ -319,6 +355,24 @@ pub fn show_timeline(
                 state.cursor_s = click_time.max(0.0);
                 state.selected.clear();
             }
+        }
+    }
+
+    // Arrow keys move cursor (when timeline has focus / is hovered)
+    if response.hovered() {
+        // Step size: 1 pixel worth of time, or 0.05s minimum
+        let step = (1.0 / state.pixels_per_second).max(0.05);
+        let big_step = step * 10.0; // Shift+arrow for larger jumps
+
+        let shift = ui.input(|i| i.modifiers.shift);
+
+        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+            let amount = if shift { big_step } else { step };
+            state.cursor_s = (state.cursor_s - amount).max(0.0);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+            let amount = if shift { big_step } else { step };
+            state.cursor_s += amount;
         }
     }
 
