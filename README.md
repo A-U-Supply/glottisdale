@@ -263,7 +263,21 @@ The editor provides:
 - **Playback** — Play/Pause/Stop with a moving cursor. Plays from cursor position. Errors display as red text in the toolbar with a dismiss button.
 - **Export** — render the arrangement to a WAV file.
 
-**Keyboard shortcuts:** Space (play/pause), Left/Right arrows (move cursor), Shift+arrows (move cursor faster), Ctrl+A (select all), Ctrl+scroll (zoom), scroll (pan).
+**Keyboard shortcuts** (click the **?** button in the editor toolbar for a full list):
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / Pause |
+| `Left` / `h` | Move cursor left |
+| `Right` / `l` | Move cursor right |
+| `Shift+Left/Right` | Move cursor faster |
+| `j` / `k` | Scroll timeline forward / backward |
+| `0` / `g` | Cursor to beginning |
+| `$` / `G` | Cursor to end |
+| `Ctrl+A` | Select all clips |
+| `Delete` / `Backspace` / `x` | Delete selected clips |
+| `Ctrl+Scroll` | Zoom in/out |
+| `Scroll` | Pan timeline |
 
 ## Dependencies
 
