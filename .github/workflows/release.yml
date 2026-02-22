@@ -62,11 +62,9 @@ jobs:
           mkdir -p "${APP_DIR}/Contents/MacOS"
           mkdir -p "${APP_DIR}/Contents/Resources"
 
-          # Copy binaries into .app
+          # Copy GUI binary into .app
           cp target/${{ matrix.target }}/release/glottisdale-gui "${APP_DIR}/Contents/MacOS/glottisdale-gui"
-          cp target/${{ matrix.target }}/release/glottisdale "${APP_DIR}/Contents/MacOS/glottisdale"
           chmod +x "${APP_DIR}/Contents/MacOS/glottisdale-gui"
-          chmod +x "${APP_DIR}/Contents/MacOS/glottisdale"
 
           # Create Info.plist
           VERSION="${GITHUB_REF_NAME#v}"
@@ -99,35 +97,36 @@ jobs:
           </plist>
           PLIST
 
-          # Convert icon to .icns if source icon exists
-          # iconutil requires RGBA PNGs; source may be grayscale, so use
-          # Python/Pillow (pre-installed on macOS runners) for conversion
+          # Convert icon.jpg to .icns using sips + iconutil
           if [ -f crates/gui/assets/icon.jpg ]; then
             ICONSET_DIR=$(mktemp -d)/icon.iconset
             mkdir -p "$ICONSET_DIR"
-            python3 -c "
-          from PIL import Image
-          import sys, os
-          img = Image.open('crates/gui/assets/icon.jpg').convert('RGBA')
-          iconset = '$ICONSET_DIR'
-          sizes = {
-              'icon_16x16.png': 16, 'icon_16x16@2x.png': 32,
-              'icon_32x32.png': 32, 'icon_32x32@2x.png': 64,
-              'icon_128x128.png': 128, 'icon_128x128@2x.png': 256,
-              'icon_256x256.png': 256, 'icon_256x256@2x.png': 512,
-              'icon_512x512.png': 512, 'icon_512x512@2x.png': 1024,
-          }
-          for name, px in sizes.items():
-              img.resize((px, px), Image.LANCZOS).save(os.path.join(iconset, name))
-          " || true
-            iconutil -c icns "$ICONSET_DIR" -o "${APP_DIR}/Contents/Resources/icon.icns" 2>/dev/null || true
+
+            # Convert JPG to PNG first
+            SRC_PNG=$(mktemp).png
+            sips -s format png crates/gui/assets/icon.jpg --out "$SRC_PNG"
+
+            # Generate all required icon sizes
+            for size in 16 32 64 128 256 512 1024; do
+              sips -z $size $size "$SRC_PNG" --out "${ICONSET_DIR}/icon_${size}x${size}.png"
+            done
+
+            # iconutil expects specific naming: icon_NxN.png and icon_NxN@2x.png
+            cd "$ICONSET_DIR"
+            cp icon_32x32.png icon_16x16@2x.png
+            cp icon_64x64.png icon_32x32@2x.png
+            cp icon_256x256.png icon_128x128@2x.png
+            cp icon_512x512.png icon_256x256@2x.png
+            cp icon_1024x1024.png icon_512x512@2x.png
+            rm -f icon_64x64.png icon_1024x1024.png
+            cd -
+
+            iconutil -c icns "$ICONSET_DIR" -o "${APP_DIR}/Contents/Resources/icon.icns"
           fi
 
           # Create DMG
           mkdir -p dist/dmg-staging
           cp -R "${APP_DIR}" dist/dmg-staging/
-          cp target/${{ matrix.target }}/release/glottisdale dist/dmg-staging/glottisdale
-          chmod +x dist/dmg-staging/glottisdale
 
           # Add symlink to /Applications for drag-install
           ln -s /Applications dist/dmg-staging/Applications
