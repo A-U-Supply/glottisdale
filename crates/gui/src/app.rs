@@ -288,6 +288,11 @@ pub struct GlottisdaleApp {
     banner_texture: egui::TextureHandle,
 }
 
+fn default_output_dir() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    format!("{home}/Documents/Glottisdale")
+}
+
 fn load_texture(
     ctx: &egui::Context,
     name: &str,
@@ -357,7 +362,7 @@ impl GlottisdaleApp {
         Self {
             mode: PipelineMode::Collage,
             source_files: Vec::new(),
-            output_dir: "./glottisdale-output".to_string(),
+            output_dir: default_output_dir(),
             whisper_model: "base".to_string(),
             seed: String::new(),
             run_name: String::new(),
