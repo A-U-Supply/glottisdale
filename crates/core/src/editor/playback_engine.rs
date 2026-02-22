@@ -2,7 +2,7 @@
 
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rodio::{OutputStream, Sink};
 
@@ -104,7 +104,11 @@ impl PlaybackEngine {
 
     /// Send a command to the playback engine.
     pub fn send(&self, cmd: PlaybackCommand) {
-        let _ = self.command_tx.send(cmd);
+        if self.command_tx.send(cmd).is_err() {
+            log::error!("Playback thread is not running (channel closed)");
+            self.state
+                .set_error("Playback thread stopped unexpectedly".into());
+        }
     }
 
     /// Play audio samples starting at a given cursor position.
@@ -132,6 +136,61 @@ impl PlaybackEngine {
     }
 }
 
+fn process_command(
+    cmd: PlaybackCommand,
+    stream_handle: Option<&rodio::OutputStreamHandle>,
+    sink: &mut Option<Sink>,
+    play_start: &mut Option<(Instant, f64)>,
+    state: &PlaybackState,
+) {
+    match cmd {
+        PlaybackCommand::PlaySamples {
+            samples,
+            sample_rate: sr,
+            start_cursor_s,
+        } => {
+            if let Some(handle) = stream_handle {
+                // Drop old sink, create a fresh one
+                drop(sink.take());
+                match Sink::try_new(handle) {
+                    Ok(new_sink) => {
+                        let source = crate::audio::playback::make_f64_source(samples, sr);
+                        new_sink.append(source);
+                        new_sink.play();
+                        *sink = Some(new_sink);
+                        *play_start = Some((Instant::now(), start_cursor_s));
+                        *state.is_playing.lock().unwrap() = true;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create audio sink: {}", e);
+                        state.set_error(format!("Audio sink: {}", e));
+                    }
+                }
+            } else {
+                state.set_error("No audio output device available".into());
+            }
+        }
+        PlaybackCommand::Pause => {
+            if let Some(ref s) = sink {
+                s.pause();
+                *state.is_playing.lock().unwrap() = false;
+            }
+        }
+        PlaybackCommand::Resume => {
+            if let Some(ref s) = sink {
+                s.play();
+                *state.is_playing.lock().unwrap() = true;
+            }
+        }
+        PlaybackCommand::Stop => {
+            drop(sink.take());
+            *play_start = None;
+            *state.is_playing.lock().unwrap() = false;
+            *state.cursor_s.lock().unwrap() = 0.0;
+        }
+    }
+}
+
 fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
     // Try to open audio output; if it fails, the thread just consumes commands.
     // OutputStream must stay alive for the entire thread lifetime.
@@ -151,54 +210,29 @@ fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
     let mut play_start: Option<(Instant, f64)> = None; // (wall_start, cursor_start)
 
     loop {
-        // Process all pending commands (non-blocking)
-        while let Ok(cmd) = rx.try_recv() {
-            match cmd {
-                PlaybackCommand::PlaySamples {
-                    samples,
-                    sample_rate: sr,
-                    start_cursor_s,
-                } => {
-                    if let Some(handle) = stream_handle {
-                        // Drop old sink, create a fresh one
-                        drop(sink.take());
-                        match Sink::try_new(handle) {
-                            Ok(new_sink) => {
-                                let source =
-                                    crate::audio::playback::make_f64_source(samples, sr);
-                                new_sink.append(source);
-                                new_sink.play();
-                                sink = Some(new_sink);
-                                play_start = Some((Instant::now(), start_cursor_s));
-                                *state.is_playing.lock().unwrap() = true;
-                            }
-                            Err(e) => {
-                                log::error!("Failed to create audio sink: {}", e);
-                                state.set_error(format!("Audio sink: {}", e));
-                            }
-                        }
-                    } else {
-                        state.set_error("No audio output device available".into());
-                    }
+        // Wait for a command (blocks up to 10ms, then falls through for cursor updates).
+        // Using recv_timeout instead of try_recv + sleep avoids the race condition
+        // where a separate disconnect-check try_recv would silently consume commands.
+        match rx.recv_timeout(Duration::from_millis(10)) {
+            Ok(cmd) => {
+                process_command(cmd, stream_handle, &mut sink, &mut play_start, &state);
+                // Drain any additional pending commands without blocking
+                while let Ok(cmd) = rx.try_recv() {
+                    process_command(
+                        cmd,
+                        stream_handle,
+                        &mut sink,
+                        &mut play_start,
+                        &state,
+                    );
                 }
-                PlaybackCommand::Pause => {
-                    if let Some(ref s) = sink {
-                        s.pause();
-                        *state.is_playing.lock().unwrap() = false;
-                    }
-                }
-                PlaybackCommand::Resume => {
-                    if let Some(ref s) = sink {
-                        s.play();
-                        *state.is_playing.lock().unwrap() = true;
-                    }
-                }
-                PlaybackCommand::Stop => {
-                    drop(sink.take());
-                    play_start = None;
-                    *state.is_playing.lock().unwrap() = false;
-                    *state.cursor_s.lock().unwrap() = 0.0;
-                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // No commands — fall through to cursor update
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Sender dropped, shut down the thread
+                break;
             }
         }
 
@@ -214,14 +248,6 @@ fn playback_thread(rx: mpsc::Receiver<PlaybackCommand>, state: PlaybackState) {
                     *state.cursor_s.lock().unwrap() = start_cursor + elapsed;
                 }
             }
-        }
-
-        // Sleep briefly to avoid busy-spinning
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        // Check if the channel is closed (sender dropped)
-        if matches!(rx.try_recv(), Err(mpsc::TryRecvError::Disconnected)) {
-            break;
         }
     }
 }
@@ -265,6 +291,41 @@ mod tests {
         let engine = PlaybackEngine::new();
         engine.play_samples(vec![], 16000, 0.0);
         std::thread::sleep(std::time::Duration::from_millis(50));
+        engine.stop();
+    }
+
+    /// Regression test: commands sent after the thread is running must be
+    /// processed, not silently consumed by a disconnect check.
+    #[test]
+    fn test_play_command_not_silently_eaten() {
+        let engine = PlaybackEngine::new();
+
+        // Wait for the thread to enter its main loop (past OutputStream init)
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Generate a 0.5s tone
+        let sr = 16000u32;
+        let samples: Vec<f64> = (0..sr / 2)
+            .map(|i| (2.0 * std::f64::consts::PI * 440.0 * i as f64 / sr as f64).sin())
+            .collect();
+
+        engine.play_samples(samples, sr, 0.0);
+
+        // Give the thread time to process the command
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // The engine should either be playing or have reported an error
+        // (e.g. no audio device in CI). It must NOT silently do nothing.
+        let is_playing = engine.state.is_playing();
+        let error = engine.state.take_error();
+
+        assert!(
+            is_playing || error.is_some(),
+            "Command was silently dropped: is_playing={}, error={:?}",
+            is_playing,
+            error
+        );
+
         engine.stop();
     }
 }
