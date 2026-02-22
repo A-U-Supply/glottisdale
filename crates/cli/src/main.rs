@@ -36,6 +36,11 @@ enum Command {
 
 // ─── Shared arguments (embedded in each subcommand) ──────────────
 
+fn default_output_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(format!("{home}/Documents/Glottisdale"))
+}
+
 #[derive(Parser, Debug)]
 struct SharedArgs {
     /// Input audio/video files to process
@@ -43,7 +48,7 @@ struct SharedArgs {
     input_files: Vec<PathBuf>,
 
     /// Output directory
-    #[arg(long, default_value = "./glottisdale-output")]
+    #[arg(long, default_value_os_t = default_output_dir())]
     output_dir: PathBuf,
 
     /// Target total duration in seconds
