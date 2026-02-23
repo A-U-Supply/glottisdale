@@ -115,6 +115,10 @@ pub struct Arrangement {
     pub sample_rate: u32,
     /// Which pipeline produced this arrangement.
     pub source_pipeline: EditorPipelineMode,
+    /// Room tone clips extracted from source audio for filling silent gaps.
+    pub room_tone_clips: Vec<Vec<f64>>,
+    /// Breath clips extracted from source audio for inserting between clips.
+    pub breath_clips: Vec<Vec<f64>>,
 }
 
 impl Arrangement {
@@ -126,6 +130,8 @@ impl Arrangement {
             crossfade_ms: 30.0,
             sample_rate,
             source_pipeline: pipeline,
+            room_tone_clips: Vec::new(),
+            breath_clips: Vec::new(),
         }
     }
 

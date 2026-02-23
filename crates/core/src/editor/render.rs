@@ -7,7 +7,10 @@ use anyhow::Result;
 
 use super::effects_chain::apply_effects;
 use super::types::{Arrangement, ClipId, SyllableClip};
+use crate::audio::analysis::{compute_rms, generate_pink_noise};
+use crate::audio::effects::{mix_audio, time_stretch};
 use crate::audio::io::write_wav;
+use crate::collage::process::apply_prosodic_dynamics;
 
 /// Settings that control how an arrangement is rendered to audio.
 pub struct RenderSettings {
@@ -125,6 +128,94 @@ pub fn render_arrangement(arrangement: &Arrangement, settings: &RenderSettings) 
             }
 
             output[out_idx] += sample * gain;
+        }
+    }
+
+    // --- Volume normalize (peak to -1dB) ---
+    if settings.volume_normalize {
+        let peak = output.iter().map(|s| s.abs()).fold(0.0f64, f64::max);
+        if peak > 1e-10 {
+            let target = 10.0f64.powf(-1.0 / 20.0); // -1dB
+            let gain = target / peak;
+            for s in output.iter_mut() {
+                *s *= gain;
+            }
+        }
+    }
+
+    // --- Prosodic dynamics ---
+    if settings.prosodic_dynamics {
+        apply_prosodic_dynamics(&mut output, sr);
+    }
+
+    // --- Room tone (mix into silent gaps) ---
+    if settings.room_tone && !arrangement.room_tone_clips.is_empty() {
+        let overall_rms = compute_rms(&output);
+        if overall_rms > 1e-10 {
+            let threshold = overall_rms * 0.05;
+            let window = (sr as f64 * 0.025) as usize; // 25ms
+            let mut i = 0;
+            let mut rt_idx = 0;
+            while i + window < output.len() {
+                let frame: &[f64] = &output[i..i + window];
+                let frame_rms = compute_rms(frame);
+                if frame_rms < threshold {
+                    let rt = &arrangement.room_tone_clips[rt_idx % arrangement.room_tone_clips.len()];
+                    for (j, &rt_sample) in rt.iter().enumerate() {
+                        if i + j < output.len() {
+                            output[i + j] += rt_sample * 0.3;
+                        }
+                    }
+                    rt_idx += 1;
+                    i += rt.len().max(window);
+                } else {
+                    i += window;
+                }
+            }
+        }
+    }
+
+    // --- Breaths (insert at clip boundaries) ---
+    if settings.breaths && settings.breath_probability > 0.0 && !arrangement.breath_clips.is_empty() {
+        use rand::Rng;
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        let mut rng = match settings.seed {
+            Some(s) => StdRng::seed_from_u64(s),
+            None => StdRng::from_entropy(),
+        };
+        for i in 0..arrangement.timeline.len().saturating_sub(1) {
+            if rng.gen::<f64>() >= settings.breath_probability {
+                continue;
+            }
+            let clip_end_s = arrangement.timeline[i].position_s
+                + arrangement.timeline[i].effective_duration_s;
+            let next_start_s = arrangement.timeline[i + 1].position_s;
+            let gap_s = next_start_s - clip_end_s;
+            if gap_s < 0.05 { continue; }
+            let breath = &arrangement.breath_clips[rng.gen_range(0..arrangement.breath_clips.len())];
+            let insert_idx = (clip_end_s * sr as f64).round() as usize;
+            for (j, &sample) in breath.iter().enumerate() {
+                let out_idx = insert_idx + j;
+                if out_idx < output.len() {
+                    output[out_idx] += sample * 0.5;
+                }
+            }
+        }
+    }
+
+    // --- Pink noise bed ---
+    if settings.noise_level_db < -0.1 || settings.noise_level_db > 0.1 {
+        let dur = output.len() as f64 / sr as f64;
+        let noise = generate_pink_noise(dur, sr, settings.seed);
+        output = mix_audio(&output, &noise, settings.noise_level_db);
+    }
+
+    // --- Global speed ---
+    if let Some(speed) = settings.speed {
+        if (speed - 1.0).abs() > 0.01 {
+            let factor = 1.0 / speed;
+            output = time_stretch(&output, sr, factor)?;
         }
     }
 
@@ -288,5 +379,54 @@ mod tests {
             with_cf.len(),
             no_cf.len()
         );
+    }
+
+    #[test]
+    fn test_render_volume_normalize_peaks_near_one() {
+        let clip = make_clip(0.1, 1600); // quiet clip
+        let tc = TimelineClip::new(&clip);
+        let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
+        arr.bank.push(clip);
+        arr.timeline.push(tc);
+        arr.relayout(0.0);
+
+        let mut settings = RenderSettings::bypass();
+        settings.volume_normalize = true;
+        let result = render_arrangement(&arr, &settings).unwrap();
+        let peak = result.iter().map(|s| s.abs()).fold(0.0f64, f64::max);
+        assert!(peak > 0.85, "peak={}, expected near 1.0 after normalization", peak);
+    }
+
+    #[test]
+    fn test_render_pink_noise_adds_content() {
+        let clip = make_clip(0.0, 16000); // 1s silence
+        let tc = TimelineClip::new(&clip);
+        let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
+        arr.bank.push(clip);
+        arr.timeline.push(tc);
+        arr.relayout(0.0);
+
+        let mut settings = RenderSettings::bypass();
+        settings.noise_level_db = -20.0;
+        settings.seed = Some(42);
+        let result = render_arrangement(&arr, &settings).unwrap();
+        let rms: f64 = (result.iter().map(|s| s * s).sum::<f64>() / result.len() as f64).sqrt();
+        assert!(rms > 0.001, "noise should be audible, rms={}", rms);
+    }
+
+    #[test]
+    fn test_render_speed_changes_length() {
+        let clip = make_clip(0.5, 16000); // 1s
+        let tc = TimelineClip::new(&clip);
+        let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
+        arr.bank.push(clip);
+        arr.timeline.push(tc);
+        arr.relayout(0.0);
+
+        let mut settings = RenderSettings::bypass();
+        settings.speed = Some(2.0);
+        let result = render_arrangement(&arr, &settings).unwrap();
+        let ratio = result.len() as f64 / 16000.0;
+        assert!(ratio < 0.6, "2x speed should halve duration, ratio={}", ratio);
     }
 }

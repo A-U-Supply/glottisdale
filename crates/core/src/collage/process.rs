@@ -311,7 +311,7 @@ fn normalize_pitch_clips(clips: &mut [Vec<f64>], sr: u32, pitch_range: f64) {
 }
 
 /// Apply prosodic dynamics to a clip: slight boost at start, taper at end.
-fn apply_prosodic_dynamics(samples: &mut [f64], sr: u32) {
+pub fn apply_prosodic_dynamics(samples: &mut [f64], sr: u32) {
     let len = samples.len();
     let dur = len as f64 / sr as f64;
     if dur <= 0.3 {
