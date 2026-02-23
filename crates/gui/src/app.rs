@@ -381,6 +381,22 @@ impl GlottisdaleApp {
     fn is_processing(&self) -> bool {
         matches!(self.processing.get_status(), ProcessingStatus::Running(_))
     }
+
+    fn build_render_settings(&self) -> glottisdale_core::editor::render::RenderSettings {
+        glottisdale_core::editor::render::RenderSettings {
+            crossfade_ms: self.collage.crossfade_ms,
+            volume_normalize: self.collage.volume_normalize,
+            pitch_normalize: self.collage.pitch_normalize,
+            pitch_range: self.collage.pitch_range,
+            prosodic_dynamics: self.collage.prosodic_dynamics,
+            noise_level_db: self.collage.noise_level_db,
+            room_tone: self.collage.room_tone,
+            breaths: self.collage.breaths,
+            breath_probability: self.collage.breath_probability,
+            speed: self.collage.speed.parse::<f64>().ok(),
+            seed: self.seed.parse::<u64>().ok(),
+        }
+    }
 }
 
 impl eframe::App for GlottisdaleApp {
@@ -570,8 +586,9 @@ impl eframe::App for GlottisdaleApp {
 
         // Central panel: main workspace or editor
         egui::CentralPanel::default().show(ctx, |ui| {
+            let render_settings = self.build_render_settings();
             if let Some(ref mut editor_state) = self.editor {
-                if crate::editor::show_editor(ui, editor_state, ctx) {
+                if crate::editor::show_editor(ui, editor_state, ctx, &render_settings) {
                     self.editor = None; // Close editor
                 }
             } else {

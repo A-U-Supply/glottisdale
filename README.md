@@ -262,6 +262,7 @@ The editor provides:
 - **Effects** — right-click any clip for stutter (x2-x8), time stretch (0.5x-4x), pitch shift (-12 to +12 semitones), reverse, duplicate, delete, and clear effects.
 - **Playback** — Play/Pause/Stop/Loop with a moving cursor. Plays from cursor position. Loop button toggles continuous replay from the beginning. Errors display as red text in the toolbar with a dismiss button.
 - **Export** — render the arrangement to a WAV file.
+- **Settings integration** — the right-pane settings (crossfade, volume/pitch normalization, prosodic dynamics, room tone, breaths, pink noise, speed) are live-previewed during editor playback and applied on WAV export.
 
 **Keyboard shortcuts** (click the **?** button in the editor toolbar for a full list):
 

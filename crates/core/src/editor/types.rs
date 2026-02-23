@@ -115,6 +115,10 @@ pub struct Arrangement {
     pub sample_rate: u32,
     /// Which pipeline produced this arrangement.
     pub source_pipeline: EditorPipelineMode,
+    /// Room tone clips extracted from source audio for filling silent gaps.
+    pub room_tone_clips: Vec<Vec<f64>>,
+    /// Breath clips extracted from source audio for inserting between clips.
+    pub breath_clips: Vec<Vec<f64>>,
 }
 
 impl Arrangement {
@@ -126,6 +130,8 @@ impl Arrangement {
             crossfade_ms: 30.0,
             sample_rate,
             source_pipeline: pipeline,
+            room_tone_clips: Vec::new(),
+            breath_clips: Vec::new(),
         }
     }
 
@@ -148,6 +154,20 @@ impl Arrangement {
         for clip in &mut self.timeline {
             clip.position_s = cursor;
             cursor += clip.effective_duration_s + gap_s;
+        }
+    }
+
+    /// Recompute positions with crossfade overlap between adjacent clips.
+    pub fn relayout_with_crossfade(&mut self, crossfade_ms: f64) {
+        let overlap_s = crossfade_ms / 1000.0;
+        let count = self.timeline.len();
+        let mut cursor = 0.0;
+        for (i, clip) in self.timeline.iter_mut().enumerate() {
+            clip.position_s = cursor;
+            cursor += clip.effective_duration_s;
+            if i < count - 1 {
+                cursor -= overlap_s.min(clip.effective_duration_s * 0.5);
+            }
         }
     }
 }
@@ -247,5 +267,26 @@ mod tests {
 
         assert!(arr.get_bank_clip(id).is_some());
         assert!(arr.get_bank_clip(Uuid::new_v4()).is_none());
+    }
+
+    #[test]
+    fn test_relayout_with_crossfade() {
+        let clip = make_test_clip(); // 0.3s
+        let tc1 = TimelineClip::new(&clip);
+        let tc2 = TimelineClip::new(&clip);
+
+        let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
+        arr.bank.push(clip);
+        arr.timeline.push(tc1);
+        arr.timeline.push(tc2);
+        arr.relayout_with_crossfade(30.0); // 30ms overlap
+
+        assert_eq!(arr.timeline[0].position_s, 0.0);
+        // Second clip starts at 0.3 - 0.03 = 0.27
+        assert!(
+            (arr.timeline[1].position_s - 0.27).abs() < 0.001,
+            "pos={}",
+            arr.timeline[1].position_s
+        );
     }
 }
