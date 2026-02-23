@@ -9,11 +9,65 @@ use super::effects_chain::apply_effects;
 use super::types::{Arrangement, ClipId, SyllableClip};
 use crate::audio::io::write_wav;
 
+/// Settings that control how an arrangement is rendered to audio.
+pub struct RenderSettings {
+    pub crossfade_ms: f64,
+    pub volume_normalize: bool,
+    pub pitch_normalize: bool,
+    pub pitch_range: f64,
+    pub prosodic_dynamics: bool,
+    pub noise_level_db: f64,
+    pub room_tone: bool,
+    pub breaths: bool,
+    pub breath_probability: f64,
+    pub speed: Option<f64>,
+    pub seed: Option<u64>,
+}
+
+impl Default for RenderSettings {
+    fn default() -> Self {
+        Self {
+            crossfade_ms: 30.0,
+            volume_normalize: true,
+            pitch_normalize: true,
+            pitch_range: 5.0,
+            prosodic_dynamics: true,
+            noise_level_db: -40.0,
+            room_tone: true,
+            breaths: true,
+            breath_probability: 0.6,
+            speed: None,
+            seed: None,
+        }
+    }
+}
+
+impl RenderSettings {
+    /// Create settings with everything disabled — all bools false,
+    /// all floats 0.0, all options None.  Useful for tests that need
+    /// deterministic, pass-through rendering.
+    pub fn bypass() -> Self {
+        Self {
+            crossfade_ms: 0.0,
+            volume_normalize: false,
+            pitch_normalize: false,
+            pitch_range: 0.0,
+            prosodic_dynamics: false,
+            noise_level_db: 0.0,
+            room_tone: false,
+            breaths: false,
+            breath_probability: 0.0,
+            speed: None,
+            seed: None,
+        }
+    }
+}
+
 /// Render the full arrangement to a contiguous audio buffer.
 ///
 /// Uses overlap-add: each clip's audio (with effects applied) is placed
 /// at its timeline position into the output buffer.
-pub fn render_arrangement(arrangement: &Arrangement) -> Result<Vec<f64>> {
+pub fn render_arrangement(arrangement: &Arrangement, _settings: &RenderSettings) -> Result<Vec<f64>> {
     if arrangement.timeline.is_empty() {
         return Ok(vec![]);
     }
@@ -53,8 +107,8 @@ pub fn render_arrangement(arrangement: &Arrangement) -> Result<Vec<f64>> {
 }
 
 /// Render and write the arrangement to a WAV file.
-pub fn export_arrangement(arrangement: &Arrangement, output_path: &Path) -> Result<()> {
-    let samples = render_arrangement(arrangement)?;
+pub fn export_arrangement(arrangement: &Arrangement, settings: &RenderSettings, output_path: &Path) -> Result<()> {
+    let samples = render_arrangement(arrangement, settings)?;
     write_wav(output_path, &samples, arrangement.sample_rate)?;
     Ok(())
 }
@@ -85,7 +139,7 @@ mod tests {
     #[test]
     fn test_render_empty() {
         let arr = Arrangement::new(16000, EditorPipelineMode::Collage);
-        let result = render_arrangement(&arr).unwrap();
+        let result = render_arrangement(&arr, &RenderSettings::bypass()).unwrap();
         assert!(result.is_empty());
     }
 
@@ -99,7 +153,7 @@ mod tests {
         arr.timeline.push(tc);
         arr.relayout(0.0);
 
-        let result = render_arrangement(&arr).unwrap();
+        let result = render_arrangement(&arr, &RenderSettings::bypass()).unwrap();
         assert_eq!(result.len(), 1600);
         assert!((result[0] - 0.5).abs() < 0.001);
     }
@@ -118,7 +172,7 @@ mod tests {
         arr.timeline.push(tc2);
         arr.relayout(0.0);
 
-        let result = render_arrangement(&arr).unwrap();
+        let result = render_arrangement(&arr, &RenderSettings::bypass()).unwrap();
         assert_eq!(result.len(), 3200);
         assert!((result[0] - 0.3).abs() < 0.001);
         assert!((result[1600] - 0.7).abs() < 0.001);
@@ -139,7 +193,7 @@ mod tests {
         arr.timeline.push(tc);
         arr.relayout(0.0);
 
-        let result = render_arrangement(&arr).unwrap();
+        let result = render_arrangement(&arr, &RenderSettings::bypass()).unwrap();
         // Stretched 2x: ~3200 samples
         let ratio = result.len() as f64 / 1600.0;
         assert!(ratio > 1.8 && ratio < 2.2, "ratio={}", ratio);
@@ -159,11 +213,24 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test_export.wav");
 
-        export_arrangement(&arr, &path).unwrap();
+        export_arrangement(&arr, &RenderSettings::bypass(), &path).unwrap();
         assert!(path.exists());
         let file_len = std::fs::metadata(&path).unwrap().len();
         assert!(file_len > 0);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_render_with_settings_default() {
+        let clip = make_clip(0.5, 1600);
+        let tc = TimelineClip::new(&clip);
+        let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
+        arr.bank.push(clip);
+        arr.timeline.push(tc);
+        arr.relayout(0.0);
+        let settings = RenderSettings::default();
+        let result = render_arrangement(&arr, &settings).unwrap();
+        assert!(!result.is_empty());
     }
 }
