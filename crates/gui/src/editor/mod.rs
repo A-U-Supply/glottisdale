@@ -11,7 +11,7 @@ use glottisdale_core::editor::{
     Arrangement, ClipEffect, ClipId, TimelineClip,
     effects_chain::compute_effective_duration,
     playback_engine::PlaybackEngine,
-    render::render_arrangement,
+    render::{render_arrangement, RenderSettings},
 };
 
 use self::timeline::{TimelineAction, TimelineState};
@@ -163,12 +163,12 @@ impl EditorState {
     }
 
     /// Play the arrangement from the current cursor position.
-    pub fn play_from_cursor(&self) {
+    pub fn play_from_cursor(&self, settings: &RenderSettings) {
         if self.arrangement.timeline.is_empty() {
             log::warn!("Nothing to play — timeline is empty");
             return;
         }
-        match render_arrangement(&self.arrangement) {
+        match render_arrangement(&self.arrangement, settings) {
             Ok(samples) => {
                 if samples.is_empty() {
                     log::warn!("Render produced no audio");
@@ -337,7 +337,12 @@ fn show_clip_context_menu(ui: &mut egui::Ui, clip_id: ClipId, action: &mut Optio
 }
 
 /// Main entry point: render the full editor UI.
-pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Context) -> bool {
+pub fn show_editor(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    ctx: &egui::Context,
+    render_settings: &RenderSettings,
+) -> bool {
     let mut close = false;
     let mut context_action: Option<ContextAction> = None;
 
@@ -353,7 +358,7 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
     if state.looping && state.was_playing_last_frame && !is_playing {
         state.timeline.cursor_s = 0.0;
         state.audio_error = None;
-        state.play_from_cursor();
+        state.play_from_cursor(render_settings);
     }
     state.was_playing_last_frame = is_playing;
 
@@ -404,7 +409,7 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
                 state.playback.pause();
             } else {
                 state.audio_error = None; // Clear previous error
-                state.play_from_cursor();
+                state.play_from_cursor(render_settings);
             }
         }
         // Loop toggle
@@ -441,7 +446,7 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
                 .save_file()
             {
                 if let Err(e) =
-                    glottisdale_core::editor::render::export_arrangement(&state.arrangement, &path)
+                    glottisdale_core::editor::render::export_arrangement(&state.arrangement, render_settings, &path)
                 {
                     log::error!("Export failed: {}", e);
                 }
@@ -522,7 +527,7 @@ pub fn show_editor(ui: &mut egui::Ui, state: &mut EditorState, ctx: &egui::Conte
                     state.playback.pause();
                 } else {
                     state.audio_error = None;
-                    state.play_from_cursor();
+                    state.play_from_cursor(render_settings);
                 }
             }
             TimelineAction::DeleteSelected => {

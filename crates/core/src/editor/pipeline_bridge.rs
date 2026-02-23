@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use super::bank_builder::build_bank_from_syllables;
+use super::bank_builder::build_bank_with_context;
 use super::types::*;
 use crate::types::Syllable;
 
@@ -32,7 +32,8 @@ pub fn arrangement_from_collage(
         .map(|(k, v)| (PathBuf::from(k), v.clone()))
         .collect();
 
-    let bank = build_bank_from_syllables(&syllable_pairs, &source_audio_pathbuf)?;
+    let (bank, room_tone_clips, breath_clips) =
+        build_bank_with_context(&syllable_pairs, &source_audio_pathbuf)?;
 
     let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
 
@@ -51,6 +52,8 @@ pub fn arrangement_from_collage(
     }
 
     arr.bank = bank;
+    arr.room_tone_clips = room_tone_clips;
+    arr.breath_clips = breath_clips;
     Ok(arr)
 }
 
@@ -73,10 +76,13 @@ pub fn arrangement_blank_canvas(
         .map(|(k, v)| (PathBuf::from(k), v.clone()))
         .collect();
 
-    let bank = build_bank_from_syllables(&syllable_pairs, &source_audio_pathbuf)?;
+    let (bank, room_tone_clips, breath_clips) =
+        build_bank_with_context(&syllable_pairs, &source_audio_pathbuf)?;
 
     let mut arr = Arrangement::new(16000, pipeline);
     arr.bank = bank;
+    arr.room_tone_clips = room_tone_clips;
+    arr.breath_clips = breath_clips;
     Ok(arr)
 }
 
