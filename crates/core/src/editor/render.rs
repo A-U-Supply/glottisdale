@@ -429,4 +429,33 @@ mod tests {
         let ratio = result.len() as f64 / 16000.0;
         assert!(ratio < 0.6, "2x speed should halve duration, ratio={}", ratio);
     }
+
+    #[test]
+    fn test_render_settings_default_values() {
+        let settings = RenderSettings::default();
+        assert!((settings.crossfade_ms - 30.0).abs() < 0.001);
+        assert!(settings.volume_normalize);
+        assert!(settings.pitch_normalize);
+        assert!((settings.pitch_range - 5.0).abs() < 0.001);
+        assert!(settings.prosodic_dynamics);
+        assert!((settings.noise_level_db - (-40.0)).abs() < 0.001);
+        assert!(settings.room_tone);
+        assert!(settings.breaths);
+        assert!((settings.breath_probability - 0.6).abs() < 0.001);
+        assert!(settings.speed.is_none());
+        assert!(settings.seed.is_none());
+    }
+
+    #[test]
+    fn test_render_settings_bypass_disables_all() {
+        let settings = RenderSettings::bypass();
+        assert!((settings.crossfade_ms).abs() < 0.001);
+        assert!(!settings.volume_normalize);
+        assert!(!settings.pitch_normalize);
+        assert!(!settings.prosodic_dynamics);
+        assert!(!settings.room_tone);
+        assert!(!settings.breaths);
+        assert!(settings.speed.is_none());
+        assert!(settings.seed.is_none());
+    }
 }
