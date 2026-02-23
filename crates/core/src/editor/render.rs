@@ -67,7 +67,7 @@ impl RenderSettings {
 ///
 /// Uses overlap-add: each clip's audio (with effects applied) is placed
 /// at its timeline position into the output buffer.
-pub fn render_arrangement(arrangement: &Arrangement, _settings: &RenderSettings) -> Result<Vec<f64>> {
+pub fn render_arrangement(arrangement: &Arrangement, settings: &RenderSettings) -> Result<Vec<f64>> {
     if arrangement.timeline.is_empty() {
         return Ok(vec![]);
     }
@@ -87,19 +87,44 @@ pub fn render_arrangement(arrangement: &Arrangement, _settings: &RenderSettings)
 
     let mut output = vec![0.0f64; total_samples];
 
+    let cf_samples = (settings.crossfade_ms / 1000.0 * sr as f64).round() as usize;
+
+    // Collect per-clip rendered audio
+    let mut clip_buffers: Vec<(usize, Vec<f64>)> = Vec::new();
     for timeline_clip in &arrangement.timeline {
         let source = bank_map
             .get(&timeline_clip.source_clip_id)
             .ok_or_else(|| anyhow::anyhow!("Missing source clip in bank"))?;
 
         let processed = apply_effects(&source.samples, sr, &timeline_clip.effects)?;
-
         let start_idx = (timeline_clip.position_s * sr as f64).round() as usize;
+        clip_buffers.push((start_idx, processed));
+    }
+
+    // Mix with crossfade
+    for (clip_index, (start_idx, processed)) in clip_buffers.iter().enumerate() {
         for (i, &sample) in processed.iter().enumerate() {
             let out_idx = start_idx + i;
-            if out_idx < output.len() {
-                output[out_idx] += sample;
+            if out_idx >= output.len() {
+                break;
             }
+
+            let mut gain = 1.0;
+
+            // Fade-in at start of clip (except first clip)
+            if cf_samples > 0 && clip_index > 0 && i < cf_samples {
+                let t = i as f64 / cf_samples as f64;
+                gain = (t * std::f64::consts::FRAC_PI_2).sin();
+            }
+
+            // Fade-out at end of clip (except last clip)
+            let samples_from_end = processed.len().saturating_sub(1).saturating_sub(i);
+            if cf_samples > 0 && clip_index < clip_buffers.len() - 1 && samples_from_end < cf_samples {
+                let t = samples_from_end as f64 / cf_samples as f64;
+                gain *= (t * std::f64::consts::FRAC_PI_2).sin();
+            }
+
+            output[out_idx] += sample * gain;
         }
     }
 
@@ -232,5 +257,36 @@ mod tests {
         let settings = RenderSettings::default();
         let result = render_arrangement(&arr, &settings).unwrap();
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_render_crossfade_shortens_output() {
+        let clip1 = make_clip(0.5, 1600); // 0.1s
+        let clip2 = make_clip(0.5, 1600);
+        let tc1 = TimelineClip::new(&clip1);
+        let tc2 = TimelineClip::new(&clip2);
+
+        let mut arr = Arrangement::new(16000, EditorPipelineMode::Collage);
+        arr.bank.push(clip1);
+        arr.bank.push(clip2);
+        arr.timeline.push(tc1);
+        arr.timeline.push(tc2);
+
+        // Without crossfade
+        arr.relayout(0.0);
+        let no_cf = render_arrangement(&arr, &RenderSettings::bypass()).unwrap();
+
+        // With 30ms crossfade
+        let mut settings = RenderSettings::bypass();
+        settings.crossfade_ms = 30.0;
+        arr.relayout_with_crossfade(settings.crossfade_ms);
+        let with_cf = render_arrangement(&arr, &settings).unwrap();
+
+        assert!(
+            with_cf.len() < no_cf.len(),
+            "crossfade should shorten output: with_cf={} no_cf={}",
+            with_cf.len(),
+            no_cf.len()
+        );
     }
 }
