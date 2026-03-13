@@ -155,7 +155,7 @@ fn normalize_pitch_clips(clips: &mut [Vec<f64>], sr: u32, pitch_range: f64) {
     let f0_values: Vec<(usize, f64)> = clips
         .iter()
         .enumerate()
-        .filter_map(|(i, c)| estimate_f0(c, sr, 80, 600).map(|f0| (i, f0)))
+        .filter_map(|(i, c)| estimate_f0(c, sr, 120, 600).map(|f0| (i, f0)))
         .collect();
 
     if f0_values.is_empty() {
