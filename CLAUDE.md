@@ -1,13 +1,24 @@
-# Glottisdale — Project Instructions
+# Glottisdale
 
-## Testing
-- Always write tests for new features and bug fixes
-- Run tests and confirm they pass before committing
+Speech synthesis and audio processing toolkit.
 
-## Git Workflow
-- NEVER commit or push directly to main/master
-- Always use feature branches, push to remote, open a PR, and merge via the PR workflow
+## Commands
+- `cargo test` — all tests
+- `cargo clippy -- -D warnings` — lint
+- `cargo test -p glottisdale-core` — core tests only
+- `cargo test -p glottisdale-cli` — CLI tests only
+- `cargo test -p glottisdale-gui` — GUI tests only
 
-## Documentation
-- Keep `README.md` and `docs/` up to date and in sync with new features and feature changes
-- Update docs as part of the same branch/PR that introduces the change
+## Architecture
+- Cargo workspace: `crates/core` (library), `crates/cli` (binary), `crates/gui` (egui binary)
+- Core embeds CMU dict via `include_str!` for G2P (grapheme-to-phoneme)
+- Whisper transcription via `whisper` CLI subprocess (or `whisper-native` feature for whisper-rs)
+- BFA aligner is a stub — falls back to default aligner
+
+## Code Conventions
+- Error types: use `thiserror`, not manual `impl Display + Error`
+- Workspace deps: declare in root `Cargo.toml` `[workspace.dependencies]`, reference with `workspace = true`
+- Branch naming: `feat/feature-name`
+
+## Gotchas
+- CI needs `libasound2-dev` on Linux for rodio/alsa-sys

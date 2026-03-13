@@ -71,7 +71,7 @@ pub fn prepare_syllables(
             continue;
         }
 
-        let f0 = estimate_f0(&clip, sr, 80, 600);
+        let f0 = estimate_f0(&clip, sr, 120, 600);
         let duration = clip.len() as f64 / sr as f64;
         let phoneme_labels: Vec<String> = syl.phonemes.iter().map(|p| p.label.clone()).collect();
 
