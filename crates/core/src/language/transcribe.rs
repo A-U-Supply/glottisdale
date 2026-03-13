@@ -115,18 +115,24 @@ fn transcribe_native(
         .full(params, &samples_f32)
         .context("Whisper inference failed")?;
 
-    let n_segments = state.full_n_segments()?;
+    let n_segments = state.full_n_segments();
     let mut text_parts = Vec::new();
     let mut words = Vec::new();
 
     for i in 0..n_segments {
-        let segment_text = state.full_get_segment_text(i)?;
+        let segment = state
+            .get_segment(i)
+            .context("Failed to get segment")?;
+        let segment_text = segment.to_str()?;
         text_parts.push(segment_text.trim().to_string());
 
-        let n_tokens = state.full_n_tokens(i)?;
+        let n_tokens = segment.n_tokens();
         for j in 0..n_tokens {
-            let token_text = state.full_get_token_text(i, j)?;
-            let token_data = state.full_get_token_data(i, j)?;
+            let token = segment
+                .get_token(j)
+                .context("Failed to get token")?;
+            let token_text = token.to_str()?;
+            let token_data = token.token_data();
 
             let trimmed = token_text.trim().to_string();
             if trimmed.is_empty() {

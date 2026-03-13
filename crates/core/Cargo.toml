@@ -20,7 +20,7 @@ hound = "3"
 rubato = "0.16"
 rodio = "0.20"
 midly = "0.5"
-whisper-rs = { version = "0.13", optional = true }
+whisper-rs = { version = "0.16", optional = true }
 reqwest = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 symphonia.workspace = true
