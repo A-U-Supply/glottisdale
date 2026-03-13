@@ -277,12 +277,16 @@ fn normalize_volume_clips(clips: &mut [Vec<f64>]) {
     }
 }
 
+/// Minimum F0 target for pitch normalization (Hz).
+/// Prevents the median from settling too low when source material is bass-heavy.
+const MIN_PITCH_TARGET_HZ: f64 = 160.0;
+
 /// Normalize pitch across clips toward median F0 (in-memory).
 fn normalize_pitch_clips(clips: &mut [Vec<f64>], sr: u32, pitch_range: f64) {
     let f0_values: Vec<(usize, f64)> = clips
         .iter()
         .enumerate()
-        .filter_map(|(i, c)| estimate_f0(c, sr, 120, 600).map(|f0| (i, f0)))
+        .filter_map(|(i, c)| estimate_f0(c, sr, 80, 600).map(|f0| (i, f0)))
         .collect();
 
     if f0_values.is_empty() {
@@ -291,10 +295,12 @@ fn normalize_pitch_clips(clips: &mut [Vec<f64>], sr: u32, pitch_range: f64) {
 
     let mut sorted_f0s: Vec<f64> = f0_values.iter().map(|(_, f0)| *f0).collect();
     sorted_f0s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let target_f0 = sorted_f0s[sorted_f0s.len() / 2];
+    let median_f0 = sorted_f0s[sorted_f0s.len() / 2];
+    let target_f0 = median_f0.max(MIN_PITCH_TARGET_HZ);
 
     log::info!(
-        "Pitch normalization: target F0 = {:.1}Hz (from {} voiced clips)",
+        "Pitch normalization: median F0 = {:.1}Hz, target F0 = {:.1}Hz (from {} voiced clips)",
+        median_f0,
         target_f0,
         f0_values.len()
     );
@@ -790,6 +796,7 @@ pub fn process(
                 "filename": c.output_path.file_name().unwrap_or_default().to_string_lossy(),
                 "source": c.source,
                 "word": c.syllables.first().map(|s| s.word.as_str()).unwrap_or(""),
+                "syllable_count": c.syllables.len(),
                 "start": c.start,
                 "end": c.end,
             })
