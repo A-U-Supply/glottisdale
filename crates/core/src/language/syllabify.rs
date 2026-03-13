@@ -25,8 +25,18 @@ pub fn syllabify_word(
 
     let syl_tuples = match syllabify_arpabet::syllabify(phonemes, true) {
         Ok(tuples) if !tuples.is_empty() => tuples,
-        _ => {
-            // Fallback: treat entire word as one syllable
+        Err(e) => {
+            log::warn!(
+                "Syllabification failed for {:?} ({:?}): {}; treating as single syllable",
+                word, phonemes, e
+            );
+            vec![(vec![], phonemes.to_vec(), vec![])]
+        }
+        Ok(_) => {
+            log::warn!(
+                "Syllabification returned empty for {:?} ({:?}); treating as single syllable",
+                word, phonemes
+            );
             vec![(vec![], phonemes.to_vec(), vec![])]
         }
     };
