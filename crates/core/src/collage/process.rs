@@ -110,7 +110,12 @@ fn group_into_chunks<T: Clone>(items: &[T], min_len: usize, max_len: usize, rng:
 }
 
 /// Sample and shuffle syllables to approximately hit target duration.
-fn sample_syllables(syllables: &[Syllable], target_duration: f64, rng: &mut StdRng) -> Vec<Syllable> {
+fn sample_syllables(
+    syllables: &[Syllable],
+    target_duration: f64,
+    dispersal_gap: f64,
+    rng: &mut StdRng,
+) -> Vec<Syllable> {
     if syllables.is_empty() {
         return Vec::new();
     }
@@ -130,6 +135,7 @@ fn sample_syllables(syllables: &[Syllable], target_duration: f64, rng: &mut StdR
     }
 
     selected.shuffle(rng);
+    disperse_adjacent(&mut selected, dispersal_gap, rng);
     selected
 }
 
@@ -137,6 +143,7 @@ fn sample_syllables(syllables: &[Syllable], target_duration: f64, rng: &mut StdR
 fn sample_syllables_multi_source(
     sources: &HashMap<String, Vec<Syllable>>,
     target_duration: f64,
+    dispersal_gap: f64,
     rng: &mut StdRng,
 ) -> Vec<Syllable> {
     if sources.is_empty() {
@@ -175,7 +182,68 @@ fn sample_syllables_multi_source(
     }
 
     selected.shuffle(rng);
+    disperse_adjacent(&mut selected, dispersal_gap, rng);
     selected
+}
+
+/// Break up syllables that were sequential in the source.
+///
+/// Two syllables are "source-sequential" if they were within `dispersal_gap`
+/// seconds of each other in the source audio (i.e., one ends near where the
+/// other begins). When found next to each other in the output, swap one with
+/// a random non-conflicting position. Multiple passes ensure thorough dispersal.
+fn disperse_adjacent(syls: &mut [Syllable], dispersal_gap: f64, rng: &mut StdRng) {
+    if syls.len() < 3 || dispersal_gap <= 0.0 {
+        return;
+    }
+
+    for _pass in 0..5 {
+        let mut swapped = false;
+        for i in 0..syls.len() - 1 {
+            if are_source_sequential(&syls[i], &syls[i + 1], dispersal_gap) {
+                // Find a swap target that won't create a new adjacency
+                let candidates: Vec<usize> = (0..syls.len())
+                    .filter(|&j| {
+                        j != i
+                            && j != i + 1
+                            && !are_source_sequential(&syls[i + 1], &syls[j], dispersal_gap)
+                            && (j == 0
+                                || !are_source_sequential(
+                                    &syls[j - 1],
+                                    &syls[i + 1],
+                                    dispersal_gap,
+                                ))
+                            && (j == syls.len() - 1
+                                || !are_source_sequential(
+                                    &syls[j + 1],
+                                    &syls[i + 1],
+                                    dispersal_gap,
+                                ))
+                    })
+                    .collect();
+
+                if let Some(&target) = candidates.choose(rng) {
+                    syls.swap(i + 1, target);
+                    swapped = true;
+                }
+            }
+        }
+        if !swapped {
+            break;
+        }
+    }
+}
+
+/// Check if two syllables were sequential in the source audio.
+///
+/// Returns true if one syllable ends within `gap` seconds of where the other
+/// begins — meaning they were spoken consecutively in the source material.
+fn are_source_sequential(a: &Syllable, b: &Syllable, gap: f64) -> bool {
+    // a then b: a.end close to b.start
+    let ab_gap = (b.start - a.end).abs();
+    // b then a: b.end close to a.start
+    let ba_gap = (a.start - b.end).abs();
+    ab_gap < gap || ba_gap < gap
 }
 
 /// Configuration for the collage pipeline.
@@ -210,6 +278,8 @@ pub struct CollageConfig {
     // Stutter
     pub stutter: Option<f64>,
     pub stutter_count: String,
+    // Dispersal
+    pub dispersal_gap: f64,
 }
 
 impl Default for CollageConfig {
@@ -240,6 +310,7 @@ impl Default for CollageConfig {
             repeat_style: "exact".to_string(),
             stutter: None,
             stutter_count: "1-2".to_string(),
+            dispersal_gap: 1.0,
         }
     }
 }
@@ -446,9 +517,14 @@ pub fn process(
     // --- Sample syllables across sources ---
     let selected = if source_syllables.len() == 1 {
         let syls = source_syllables.values().next().unwrap();
-        sample_syllables(syls, config.target_duration, &mut rng)
+        sample_syllables(syls, config.target_duration, config.dispersal_gap, &mut rng)
     } else {
-        sample_syllables_multi_source(source_syllables, config.target_duration, &mut rng)
+        sample_syllables_multi_source(
+            source_syllables,
+            config.target_duration,
+            config.dispersal_gap,
+            &mut rng,
+        )
     };
 
     // Helper: find which source a syllable came from
@@ -846,7 +922,7 @@ mod tests {
     #[test]
     fn test_sample_syllables_empty() {
         let mut rng = StdRng::seed_from_u64(42);
-        assert!(sample_syllables(&[], 10.0, &mut rng).is_empty());
+        assert!(sample_syllables(&[], 10.0, 1.0, &mut rng).is_empty());
     }
 
     #[test]
@@ -861,7 +937,7 @@ mod tests {
                 word_index: i,
             })
             .collect();
-        let selected = sample_syllables(&syls, 1.0, &mut rng);
+        let selected = sample_syllables(&syls, 1.0, 1.0, &mut rng);
         assert!(!selected.is_empty());
         let total_dur: f64 = selected.iter().map(|s| s.end - s.start).sum();
         assert!(total_dur <= 2.0); // Approximately target + one syllable

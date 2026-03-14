@@ -225,6 +225,13 @@ struct CollageArgs {
     /// Extra copies of stuttered syllable: "2" or "1-3"
     #[arg(long, default_value = "1-2")]
     stutter_count: String,
+
+    // -- Dispersal --
+    /// Source-time gap (seconds) below which syllables cannot be consecutive in output.
+    /// Prevents recognizable phrases from the source material bleeding through.
+    /// Set to 0 to disable.
+    #[arg(long, default_value_t = 1.0)]
+    dispersal_gap: f64,
 }
 
 // ─── Sing ────────────────────────────────────────────────────────
@@ -450,6 +457,7 @@ fn run_collage(args: CollageArgs) -> Result<()> {
         repeat_style: args.repeat_style,
         stutter: args.stutter,
         stutter_count: args.stutter_count,
+        dispersal_gap: args.dispersal_gap,
     };
 
     let result = glottisdale_core::collage::process::process(
