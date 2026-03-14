@@ -150,29 +150,29 @@ fn sample_syllables_multi_source(
         return Vec::new();
     }
 
-    let mut pools: HashMap<String, Vec<Syllable>> = HashMap::new();
-    for (name, syls) in sources {
-        let mut pool = syls.clone();
+    // Assign each source a numeric tag for fast comparison
+    let source_names: Vec<String> = sources.keys().cloned().collect();
+    let mut pools: Vec<(usize, Vec<Syllable>)> = Vec::new();
+    for (idx, name) in source_names.iter().enumerate() {
+        let mut pool = sources[name].clone();
         pool.shuffle(rng);
-        pools.insert(name.clone(), pool);
+        pools.push((idx, pool));
     }
 
-    let mut selected = Vec::new();
+    // Round-robin selection, keeping source tags
+    let mut tagged: Vec<(usize, Syllable)> = Vec::new();
     let mut total = 0.0;
-    let source_names: Vec<String> = pools.keys().cloned().collect();
 
     'outer: loop {
         let mut any_remaining = false;
-        for name in &source_names {
-            if let Some(pool) = pools.get_mut(name) {
-                if let Some(syl) = pool.pop() {
-                    any_remaining = true;
-                    let syl_dur = syl.end - syl.start;
-                    total += syl_dur;
-                    selected.push(syl);
-                    if total >= target_duration {
-                        break 'outer;
-                    }
+        for (src_idx, pool) in pools.iter_mut() {
+            if let Some(syl) = pool.pop() {
+                any_remaining = true;
+                let syl_dur = syl.end - syl.start;
+                total += syl_dur;
+                tagged.push((*src_idx, syl));
+                if total >= target_duration {
+                    break 'outer;
                 }
             }
         }
@@ -181,9 +181,9 @@ fn sample_syllables_multi_source(
         }
     }
 
-    selected.shuffle(rng);
-    disperse_adjacent(&mut selected, dispersal_gap, rng);
-    selected
+    tagged.shuffle(rng);
+    disperse_adjacent_tagged(&mut tagged, dispersal_gap, rng);
+    tagged.into_iter().map(|(_, syl)| syl).collect()
 }
 
 /// Break up syllables that were sequential in the source.
@@ -232,6 +232,67 @@ fn disperse_adjacent(syls: &mut [Syllable], dispersal_gap: f64, rng: &mut StdRng
             break;
         }
     }
+}
+
+/// Source-aware dispersal for multi-source collages.
+///
+/// Only compares syllables from the same source (identified by tag).
+fn disperse_adjacent_tagged(
+    syls: &mut [(usize, Syllable)],
+    dispersal_gap: f64,
+    rng: &mut StdRng,
+) {
+    if syls.len() < 3 || dispersal_gap <= 0.0 {
+        return;
+    }
+
+    for _pass in 0..5 {
+        let mut swapped = false;
+        for i in 0..syls.len() - 1 {
+            if are_tagged_sequential(&syls[i], &syls[i + 1], dispersal_gap) {
+                let candidates: Vec<usize> = (0..syls.len())
+                    .filter(|&j| {
+                        j != i
+                            && j != i + 1
+                            && !are_tagged_sequential(&syls[i + 1], &syls[j], dispersal_gap)
+                            && (j == 0
+                                || !are_tagged_sequential(
+                                    &syls[j - 1],
+                                    &syls[i + 1],
+                                    dispersal_gap,
+                                ))
+                            && (j == syls.len() - 1
+                                || !are_tagged_sequential(
+                                    &syls[j + 1],
+                                    &syls[i + 1],
+                                    dispersal_gap,
+                                ))
+                    })
+                    .collect();
+
+                if let Some(&target) = candidates.choose(rng) {
+                    syls.swap(i + 1, target);
+                    swapped = true;
+                }
+            }
+        }
+        if !swapped {
+            break;
+        }
+    }
+}
+
+/// Check if two tagged syllables were sequential in the same source.
+fn are_tagged_sequential(
+    a: &(usize, Syllable),
+    b: &(usize, Syllable),
+    gap: f64,
+) -> bool {
+    // Different sources → never sequential
+    if a.0 != b.0 {
+        return false;
+    }
+    are_source_sequential(&a.1, &b.1, gap)
 }
 
 /// Check if two syllables were sequential in the source audio.
