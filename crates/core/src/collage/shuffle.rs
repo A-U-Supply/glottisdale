@@ -4,23 +4,26 @@
 //! each syllable slot with phonetically-matched syllables from OTHER sources.
 //! Produces gibberish that preserves natural speech rhythm and coarticulation.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Result, bail};
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 
 use crate::audio::analysis::{compute_rms, estimate_f0};
 use crate::audio::io::write_wav;
 use crate::speak::assembler::{assemble, plan_timing};
-use crate::speak::matcher::match_syllables;
-use crate::speak::phonetic_distance::normalize_phoneme;
+use crate::speak::matcher::MatchResult;
+use crate::speak::phonetic_distance::{normalize_phoneme, syllable_distance};
 use crate::speak::syllable_bank::{SyllableEntry, build_bank};
 use crate::types::{PipelineResult, Syllable};
 
+/// Number of top candidates to consider when randomly picking a match.
+const TOP_N: usize = 5;
+
 /// Run the shuffle-mode collage pipeline.
-///
-/// For each source, uses its syllable sequence as a timing template and
-/// fills each slot with phonetically-matched syllables from other sources.
 pub fn process_shuffle(
     source_audio: &HashMap<String, (Vec<f64>, u32)>,
     source_syllables: &HashMap<String, Vec<Syllable>>,
@@ -35,6 +38,7 @@ pub fn process_shuffle(
     std::fs::create_dir_all(output_dir)?;
 
     let source_names: Vec<String> = source_syllables.keys().cloned().collect();
+    let mut rng = StdRng::from_entropy();
 
     // Determine sample rate from first source
     let sr = source_audio
@@ -82,7 +86,9 @@ pub fn process_shuffle(
     let total_after: usize = filtered_sources.values().map(|s| s.len()).sum();
     log::info!(
         "Shuffle syllable filter: {}/{} passed (rejected {})",
-        total_after, total_before, total_before - total_after,
+        total_after,
+        total_before,
+        total_before - total_after,
     );
 
     if filtered_sources.len() < 2 {
@@ -91,7 +97,7 @@ pub fn process_shuffle(
 
     let mut all_output_samples: Vec<f64> = Vec::new();
     let mut total_duration = 0.0;
-    let mut all_clips = Vec::new();
+    let mut total_matched = 0usize;
 
     for template_name in &source_names {
         if total_duration >= target_duration {
@@ -106,8 +112,21 @@ pub fn process_shuffle(
             continue;
         }
 
-        // Build target: template's phoneme sequence
-        let target_phonemes: Vec<Vec<String>> = template_syls
+        // Build target: template's phoneme sequence (only syllables with real phonemes)
+        let filtered_template: Vec<&Syllable> = template_syls
+            .iter()
+            .filter(|syl| {
+                syl.phonemes
+                    .iter()
+                    .any(|p| !p.label.is_empty() && p.label.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false))
+            })
+            .collect();
+
+        if filtered_template.is_empty() {
+            continue;
+        }
+
+        let target_phonemes: Vec<Vec<String>> = filtered_template
             .iter()
             .map(|syl| {
                 syl.phonemes
@@ -116,12 +135,7 @@ pub fn process_shuffle(
                     .map(|p| normalize_phoneme(&p.label))
                     .collect()
             })
-            .filter(|v: &Vec<String>| !v.is_empty())
             .collect();
-
-        if target_phonemes.is_empty() {
-            continue;
-        }
 
         // Build bank from all sources EXCEPT the template
         let mut bank: Vec<SyllableEntry> = Vec::new();
@@ -136,78 +150,75 @@ pub fn process_shuffle(
             continue;
         }
 
-        // Extract stress info from template
-        let target_stresses: Vec<Option<u8>> = template_syls
+        // Randomized top-N matching with reuse prevention
+        let mut used: HashSet<usize> = HashSet::new();
+        let matches: Vec<MatchResult> = target_phonemes
             .iter()
-            .filter(|syl| {
-                syl.phonemes
+            .enumerate()
+            .map(|(target_idx, target)| {
+                // Score all bank entries
+                let mut scored: Vec<(usize, i32)> = bank
                     .iter()
-                    .any(|p| !p.label.is_empty() && p.label.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false))
-            })
-            .map(|syl| {
-                syl.phonemes
-                    .iter()
-                    .find_map(|p| {
-                        p.label.as_bytes().last().and_then(|b| {
-                            if b.is_ascii_digit() {
-                                Some(b - b'0')
-                            } else {
-                                None
-                            }
-                        })
+                    .enumerate()
+                    .map(|(j, entry)| {
+                        let dist = syllable_distance(target, &entry.phoneme_labels);
+                        // Penalize already-used entries
+                        let reuse_penalty = if used.contains(&j) { 20 } else { 0 };
+                        (j, dist + reuse_penalty)
                     })
+                    .collect();
+
+                // Sort by distance (ascending)
+                scored.sort_by_key(|(_, d)| *d);
+
+                // Pick randomly from top N candidates
+                let top: Vec<(usize, i32)> = scored.into_iter().take(TOP_N).collect();
+                let &(chosen_idx, dist) = top.choose(&mut rng).unwrap();
+
+                used.insert(chosen_idx);
+
+                MatchResult {
+                    target_phonemes: target.clone(),
+                    entry: bank[chosen_idx].clone(),
+                    distance: dist,
+                    target_index: target_idx,
+                }
             })
             .collect();
-
-        // Match using Viterbi DP
-        let matches = match_syllables(
-            &target_phonemes,
-            &bank,
-            Some(&target_stresses),
-            None, // default continuity bonus
-        );
 
         if matches.is_empty() {
             continue;
         }
 
-        // Plan timing using template's original syllable timing as reference
-        let filtered_template_syls: Vec<&Syllable> = template_syls
-            .iter()
-            .filter(|syl| {
-                syl.phonemes
-                    .iter()
-                    .any(|p| !p.label.is_empty() && p.label.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false))
-            })
-            .collect();
+        total_matched += matches.len();
 
-        let reference_timings: Vec<(f64, f64)> = filtered_template_syls
+        // Plan timing using template's original syllable timing as reference
+        let reference_timings: Vec<(f64, f64)> = filtered_template
             .iter()
             .map(|syl| (syl.start, syl.end))
             .collect();
 
-        // Compute word boundaries from template
         let mut word_boundaries: Vec<usize> = Vec::new();
-        for (i, syl) in filtered_template_syls.iter().enumerate() {
+        for (i, syl) in filtered_template.iter().enumerate() {
             if i == 0 {
                 word_boundaries.push(0);
-            } else if syl.word_index != filtered_template_syls[i - 1].word_index {
+            } else if syl.word_index != filtered_template[i - 1].word_index {
                 word_boundaries.push(i);
             }
         }
 
-        let avg_syl_dur: f64 = filtered_template_syls
+        let avg_syl_dur: f64 = filtered_template
             .iter()
             .map(|s| s.end - s.start)
             .sum::<f64>()
-            / filtered_template_syls.len().max(1) as f64;
+            / filtered_template.len().max(1) as f64;
 
         let timing = plan_timing(
             &matches,
             &word_boundaries,
             avg_syl_dur,
             Some(&reference_timings),
-            0.9, // high strictness — closely follow template timing
+            0.9,
         );
 
         // Assemble audio
@@ -217,12 +228,11 @@ pub fn process_shuffle(
             source_audio,
             output_dir,
             crossfade_ms,
-            None,  // no manual pitch shifts
-            true,  // normalize volume
-            true,  // normalize pitch
+            None,
+            true,
+            true,
         )?;
 
-        // Read the assembled audio and append
         if template_output.exists() {
             let (samples, _sr) = crate::audio::io::read_wav(&template_output)?;
             let dur = samples.len() as f64 / sr as f64;
@@ -249,18 +259,28 @@ pub fn process_shuffle(
     let concatenated_path = output_dir.join(format!("{}.wav", run_name));
     write_wav(&concatenated_path, &all_output_samples, sr)?;
 
+    let output_duration = all_output_samples.len() as f64 / sr as f64;
+    log::info!(
+        "Shuffle output: {:.1}s, {} syllables matched across {} templates",
+        output_duration, total_matched, source_names.len(),
+    );
+
     let manifest = serde_json::json!({
         "mode": "shuffle",
         "sources": source_names,
-        "total_syllables": source_syllables.values().map(|s| s.len()).sum::<usize>(),
-        "duration": all_output_samples.len() as f64 / sr as f64,
+        "total_syllables": total_after,
+        "matched_syllables": total_matched,
+        "duration": output_duration,
     });
 
     let manifest_path = output_dir.join("manifest.json");
     std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
 
+    // Report via stdout for bot parsing
+    println!("Selected {} clips", total_matched);
+
     Ok(PipelineResult {
-        clips: all_clips,
+        clips: Vec::new(),
         concatenated: concatenated_path,
         transcript: String::new(),
         manifest,
