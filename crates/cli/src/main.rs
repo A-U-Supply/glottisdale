@@ -148,7 +148,7 @@ struct CollageArgs {
     no_pitch_normalize: bool,
 
     /// Max pitch shift in semitones
-    #[arg(long, default_value_t = 5.0)]
+    #[arg(long, default_value_t = 8.0)]
     pitch_range: f64,
 
     /// Insert breath sounds at phrase boundaries [use --no-breaths to disable]
