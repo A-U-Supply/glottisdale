@@ -358,7 +358,7 @@ impl Default for CollageConfig {
             seed: None,
             noise_level_db: -40.0,
             room_tone: true,
-            pitch_normalize: true,
+            pitch_normalize: false,
             pitch_range: 5.0,
             breaths: true,
             breath_probability: 0.6,

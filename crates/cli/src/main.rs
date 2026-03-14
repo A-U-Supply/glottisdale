@@ -139,8 +139,8 @@ struct CollageArgs {
     #[arg(long, overrides_with = "room_tone")]
     no_room_tone: bool,
 
-    /// Normalize pitch across syllables [use --no-pitch-normalize to disable]
-    #[arg(long, default_value_t = true)]
+    /// Normalize pitch across syllables [use --pitch-normalize to enable]
+    #[arg(long, default_value_t = false)]
     pitch_normalize: bool,
 
     /// Disable pitch normalization
