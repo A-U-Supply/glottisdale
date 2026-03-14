@@ -1128,6 +1128,7 @@ fn start_collage(app: &mut GlottisdaleApp) {
                 repeat_style: "exact".to_string(),
                 stutter: if s.stutter.is_empty() { None } else { s.stutter.parse().ok() },
                 stutter_count: s.stutter_count.clone(),
+                dispersal_gap: 1.0,
             };
 
             let result = process(&source_audio, &source_syllables, &run_dir, &config)?;
