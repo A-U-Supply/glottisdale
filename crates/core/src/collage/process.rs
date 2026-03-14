@@ -362,7 +362,7 @@ impl Default for CollageConfig {
             noise_level_db: -40.0,
             room_tone: true,
             pitch_normalize: true,
-            pitch_range: 5.0,
+            pitch_range: 8.0,
             breaths: true,
             breath_probability: 0.6,
             volume_normalize: true,
@@ -590,7 +590,7 @@ pub fn process(
                 if dur < 0.05 || dur > 0.8 {
                     return false;
                 }
-                // Reject syllables with too little energy (not speech)
+                // Reject syllables with too little energy or non-speech pitch
                 if let Some((samples, sample_rate)) = audio {
                     let start_idx = (syl.start * *sample_rate as f64) as usize;
                     let end_idx = (syl.end * *sample_rate as f64) as usize;
@@ -599,6 +599,12 @@ pub fn process(
                         let rms = compute_rms(clip);
                         if rms < 0.005 {
                             return false;
+                        }
+                        // Reject clips with very low F0 (rumble, bass, non-speech)
+                        if let Some(f0) = estimate_f0(clip, *sample_rate, 80, 600) {
+                            if f0 < 100.0 {
+                                return false;
+                            }
                         }
                     }
                 }
