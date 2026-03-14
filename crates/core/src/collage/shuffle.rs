@@ -9,6 +9,7 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
+use crate::audio::analysis::{compute_rms, estimate_f0};
 use crate::audio::io::write_wav;
 use crate::speak::assembler::{assemble, plan_timing};
 use crate::speak::matcher::match_syllables;
@@ -42,6 +43,52 @@ pub fn process_shuffle(
         .map(|(_, sr)| *sr)
         .unwrap_or(16000);
 
+    // Filter syllables: reject too-long, too-short, silent, and non-speech pitch
+    let mut filtered_sources: HashMap<String, Vec<Syllable>> = HashMap::new();
+    for (name, syls) in source_syllables {
+        let audio = source_audio.get(name);
+        let filtered: Vec<Syllable> = syls
+            .iter()
+            .filter(|syl| {
+                let dur = syl.end - syl.start;
+                if dur < 0.05 || dur > 0.8 {
+                    return false;
+                }
+                if let Some((samples, sample_rate)) = audio {
+                    let start_idx = (syl.start * *sample_rate as f64) as usize;
+                    let end_idx = (syl.end * *sample_rate as f64) as usize;
+                    if start_idx < end_idx && end_idx <= samples.len() {
+                        let clip = &samples[start_idx..end_idx];
+                        if compute_rms(clip) < 0.005 {
+                            return false;
+                        }
+                        if let Some(f0) = estimate_f0(clip, *sample_rate, 80, 600) {
+                            if f0 < 100.0 {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
+        if !filtered.is_empty() {
+            filtered_sources.insert(name.clone(), filtered);
+        }
+    }
+
+    let total_before: usize = source_syllables.values().map(|s| s.len()).sum();
+    let total_after: usize = filtered_sources.values().map(|s| s.len()).sum();
+    log::info!(
+        "Shuffle syllable filter: {}/{} passed (rejected {})",
+        total_after, total_before, total_before - total_after,
+    );
+
+    if filtered_sources.len() < 2 {
+        bail!("Not enough sources with valid syllables after filtering (need at least 2)");
+    }
+
     let mut all_output_samples: Vec<f64> = Vec::new();
     let mut total_duration = 0.0;
     let mut all_clips = Vec::new();
@@ -51,7 +98,10 @@ pub fn process_shuffle(
             break;
         }
 
-        let template_syls = &source_syllables[template_name];
+        let template_syls = match filtered_sources.get(template_name) {
+            Some(syls) => syls,
+            None => continue,
+        };
         if template_syls.is_empty() {
             continue;
         }
@@ -75,7 +125,7 @@ pub fn process_shuffle(
 
         // Build bank from all sources EXCEPT the template
         let mut bank: Vec<SyllableEntry> = Vec::new();
-        for (name, syls) in source_syllables {
+        for (name, syls) in &filtered_sources {
             if name == template_name {
                 continue;
             }

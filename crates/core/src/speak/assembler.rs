@@ -276,7 +276,7 @@ pub fn assemble(
     }
 
     if do_normalize_pitch {
-        normalize_pitch_clips(&mut clips, sample_rate, 5.0);
+        normalize_pitch_clips(&mut clips, sample_rate, 8.0);
     }
 
     // Concatenate all clips
