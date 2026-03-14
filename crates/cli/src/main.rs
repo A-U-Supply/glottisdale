@@ -64,11 +64,11 @@ struct SharedArgs {
     seed: Option<u64>,
 
     /// Show verbose output
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long, default_value_t = true)]
     verbose: bool,
 
     /// Disable file-based caching
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     no_cache: bool,
 
     /// Custom run name (default: auto-generated)
@@ -139,8 +139,8 @@ struct CollageArgs {
     #[arg(long, overrides_with = "room_tone")]
     no_room_tone: bool,
 
-    /// Normalize pitch across syllables [use --pitch-normalize to enable]
-    #[arg(long, default_value_t = false)]
+    /// Normalize pitch across syllables [use --no-pitch-normalize to disable]
+    #[arg(long, default_value_t = true)]
     pitch_normalize: bool,
 
     /// Disable pitch normalization

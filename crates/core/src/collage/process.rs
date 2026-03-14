@@ -24,8 +24,11 @@ use crate::collage::stretch::{
 use crate::language::phonotactics::order_syllables;
 use crate::types::{Clip, PipelineResult, Syllable};
 
-/// Default weights for syllables-per-word: favors 2-syllable words.
-const WORD_LENGTH_WEIGHTS: &[f64] = &[0.30, 0.35, 0.25, 0.10];
+/// Default weights for syllables-per-word: mimics natural speech word-length
+/// distribution. Mostly 2-3 syllable words, with occasional 1s and 4s.
+/// Single syllables are rare because they tend to sound like recognizable
+/// English words rather than gibberish.
+const WORD_LENGTH_WEIGHTS: &[f64] = &[0.10, 0.40, 0.35, 0.15];
 
 /// Parse range string like "1-5" or "3" into (min, max).
 fn parse_range(s: &str) -> (usize, usize) {
@@ -358,7 +361,7 @@ impl Default for CollageConfig {
             seed: None,
             noise_level_db: -40.0,
             room_tone: true,
-            pitch_normalize: false,
+            pitch_normalize: true,
             pitch_range: 5.0,
             breaths: true,
             breath_probability: 0.6,
