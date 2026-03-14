@@ -575,13 +575,57 @@ pub fn process(
         }
     }
 
+    // --- Filter syllables: reject too-long, too-short, and non-speech ---
+    let mut filtered_sources: HashMap<String, Vec<Syllable>> = HashMap::new();
+    for (name, syls) in source_syllables {
+        let audio = source_audio.get(name);
+        let filtered: Vec<Syllable> = syls
+            .iter()
+            .filter(|syl| {
+                let dur = syl.end - syl.start;
+                // Reject syllables outside reasonable duration range
+                if dur < 0.05 || dur > 0.8 {
+                    return false;
+                }
+                // Reject syllables with too little energy (not speech)
+                if let Some((samples, sample_rate)) = audio {
+                    let start_idx = (syl.start * *sample_rate as f64) as usize;
+                    let end_idx = (syl.end * *sample_rate as f64) as usize;
+                    if start_idx < end_idx && end_idx <= samples.len() {
+                        let clip = &samples[start_idx..end_idx];
+                        let rms = compute_rms(clip);
+                        if rms < 0.005 {
+                            return false;
+                        }
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
+        if !filtered.is_empty() {
+            filtered_sources.insert(name.clone(), filtered);
+        }
+    }
+
+    let total_before: usize = source_syllables.values().map(|s| s.len()).sum();
+    let total_after: usize = filtered_sources.values().map(|s| s.len()).sum();
+    if total_after < total_before {
+        log::info!(
+            "Syllable filter: {}/{} syllables passed (rejected {}: too long, too short, or silent)",
+            total_after,
+            total_before,
+            total_before - total_after,
+        );
+    }
+
     // --- Sample syllables across sources ---
-    let selected = if source_syllables.len() == 1 {
-        let syls = source_syllables.values().next().unwrap();
+    let selected = if filtered_sources.len() == 1 {
+        let syls = filtered_sources.values().next().unwrap();
         sample_syllables(syls, config.target_duration, config.dispersal_gap, &mut rng)
     } else {
         sample_syllables_multi_source(
-            source_syllables,
+            &filtered_sources,
             config.target_duration,
             config.dispersal_gap,
             &mut rng,
