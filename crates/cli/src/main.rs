@@ -85,6 +85,10 @@ struct CollageArgs {
     #[command(flatten)]
     shared: SharedArgs,
 
+    /// Collage mode: "random" (default) or "shuffle" (template-based)
+    #[arg(long, default_value = "random", value_parser = ["random", "shuffle"])]
+    mode: String,
+
     // -- Prosodic grouping --
     /// Syllables per word: "3" or "1-4"
     #[arg(long, default_value = "1-4")]
@@ -460,12 +464,22 @@ fn run_collage(args: CollageArgs) -> Result<()> {
         dispersal_gap: args.dispersal_gap,
     };
 
-    let result = glottisdale_core::collage::process::process(
-        &source_audio,
-        &source_syllables,
-        &run_dir,
-        &config,
-    )?;
+    let result = if args.mode == "shuffle" {
+        glottisdale_core::collage::shuffle::process_shuffle(
+            &source_audio,
+            &source_syllables,
+            &run_dir,
+            args.shared.target_duration,
+            args.crossfade,
+        )?
+    } else {
+        glottisdale_core::collage::process::process(
+            &source_audio,
+            &source_syllables,
+            &run_dir,
+            &config,
+        )?
+    };
 
     // Create clips zip from the clips directory
     let clips_dir = run_dir.join("clips");
