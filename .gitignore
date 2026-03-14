@@ -5,3 +5,4 @@ glottisdale-output/
 
 # Rust
 target/
+Cargo.lock
